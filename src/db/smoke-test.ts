@@ -92,7 +92,7 @@ async function testTablesExist(): Promise<void> {
 async function testFeeConfigSeeded(): Promise<void> {
   const rows = await sql<{ asset: string }[]>`SELECT asset FROM fee_config ORDER BY asset`;
   const assets = rows.map((r) => r.asset).sort();
-  const expected = ['BTC', 'ETH', 'LTC', 'USDC_ERC20', 'USDC_SPL', 'USDT_ERC20'].sort();
+  const expected = ['BNB', 'BTC', 'ETH', 'LTC', 'SOL', 'USDT_BEP20'].sort();
 
   if (JSON.stringify(assets) !== JSON.stringify(expected)) {
     throw new Error(`Fee config assets mismatch. Got: ${assets.join(', ')}`);

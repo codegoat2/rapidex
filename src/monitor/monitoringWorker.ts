@@ -47,14 +47,16 @@ async function checkHotWalletBalances(): Promise<void> {
     BTC:      config.MIN_HOT_WALLET_BTC,
     LTC:      config.MIN_HOT_WALLET_LTC,
     ETH:      config.MIN_HOT_WALLET_ETH,
-    USDC_SPL: config.MIN_HOT_WALLET_SOL,
+    SOL:      config.MIN_HOT_WALLET_SOL,
+    BNB:      config.MIN_HOT_WALLET_BNB,
   };
 
   const wallets = [
-    { asset: 'BTC',      address: config.HOT_WALLET_BTC,  chain: 'bitcoin'  },
-    { asset: 'LTC',      address: config.HOT_WALLET_LTC,  chain: 'litecoin' },
-    { asset: 'ETH',      address: config.HOT_WALLET_ETH,  chain: 'ethereum' },
-    { asset: 'USDC_SPL', address: config.HOT_WALLET_SOL,  chain: 'solana'   },
+    { asset: 'BTC', address: config.HOT_WALLET_BTC, chain: 'bitcoin'  },
+    { asset: 'LTC', address: config.HOT_WALLET_LTC, chain: 'litecoin' },
+    { asset: 'ETH', address: config.HOT_WALLET_ETH, chain: 'ethereum' },
+    { asset: 'SOL', address: config.HOT_WALLET_SOL, chain: 'solana'   },
+    { asset: 'BNB', address: config.HOT_WALLET_BNB, chain: 'bsc'      },
   ].filter((w): w is { asset: string; address: string; chain: string } => !!w.address);
 
   for (const wallet of wallets) {
@@ -94,6 +96,11 @@ async function fetchWalletBalance(address: string, asset: string, chain: string)
     }
     if (chain === 'ethereum' && asset === 'ETH') {
       const provider = new ethers.JsonRpcProvider(rpcUrl('eth'));
+      const balance = await provider.getBalance(address);
+      return Number(balance) / 1e18;
+    }
+    if (chain === 'bsc' && asset === 'BNB') {
+      const provider = new ethers.JsonRpcProvider(rpcUrl('bnb'));
       const balance = await provider.getBalance(address);
       return Number(balance) / 1e18;
     }

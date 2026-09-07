@@ -8,9 +8,9 @@
 // Enums (must match CHECK constraints in migrations)
 // ---------------------------------------------------------------------------
 
-export type Asset = 'BTC' | 'LTC' | 'ETH' | 'USDT_ERC20' | 'USDC_ERC20' | 'USDC_SPL';
+export type Asset = 'BTC' | 'LTC' | 'ETH' | 'SOL' | 'USDT_BEP20' | 'BNB';
 
-export type Chain = 'bitcoin' | 'litecoin' | 'ethereum' | 'solana';
+export type Chain = 'bitcoin' | 'litecoin' | 'ethereum' | 'solana' | 'bsc';
 
 export type FiatCurrency = 'EUR' | 'USD' | 'GBP';
 
@@ -20,9 +20,13 @@ export type FiatMethod =
   | 'WISE'
   | 'PAYPAL'
   | 'CASH_IN_PERSON'
+  | 'BINANCE_GIFT_CARD'
+  | 'PAYSAFE'
+  | 'APPLE_PAY'
+  | 'CASHAPP'
   | 'OTHER';
 
-export type TradeDirection = 'BUY' | 'SELL'; // BUY = user buys crypto; SELL = user sells crypto
+export type TradeDirection = 'BUY' | 'SELL' | 'SWAP' | 'FIAT_TO_FIAT';
 
 /**
  * Explicit trade state machine.
@@ -109,7 +113,7 @@ export interface DbTrade {
   user_discord_id: string;
   exchanger_id: string | null;
   asset: Asset;
-  amount: string; // numeric stored as string to avoid float precision issues
+  amount: string;
   fiat_amount: string | null;
   quote_id: string | null;
   rate: string | null;
@@ -120,6 +124,12 @@ export interface DbTrade {
   fiat_currency: FiatCurrency;
   fiat_method: FiatMethod;
   direction: TradeDirection;
+  /** For SWAP trades: the asset the user wants to receive */
+  swap_to_asset: Asset | null;
+  /** For FIAT_TO_FIAT trades: the receiving fiat method */
+  fiat_to_method: FiatMethod | null;
+  /** Optional message from the user at trade creation */
+  user_note: string | null;
   status: TradeStatus;
   ticket_channel_id: string;
   user_wallet_address: string | null;

@@ -3,7 +3,7 @@
  *
  * NOWNodes provides two API surfaces per chain:
  *
- *   1. RPC Node   — standard JSON-RPC (Bitcoin Core / Ethereum / Solana)
+ *   1. RPC Node   — standard JSON-RPC (Bitcoin Core / Ethereum / Solana / BSC)
  *      Base URL:  https://<chain>.nownodes.io/<API_KEY>
  *      Auth:      API key in the URL path
  *
@@ -12,11 +12,14 @@
  *      Auth:      api-key HTTP header
  *
  * Single API key covers all chains.
+ *
+ * Supported nodes: BTC, LTC, ETH, SOL, BNB (BSC)
+ * Supported tradeable assets: BTC, LTC, ETH, SOL, USDT_BEP20
  */
 
 import { config } from './env';
 
-export function rpcUrl(chain: 'btc' | 'ltc' | 'eth' | 'sol'): string {
+export function rpcUrl(chain: 'btc' | 'ltc' | 'eth' | 'sol' | 'bnb'): string {
   const testnet = config.NETWORK === 'testnet';
 
   switch (chain) {
@@ -35,6 +38,11 @@ export function rpcUrl(chain: 'btc' | 'ltc' | 'eth' | 'sol'): string {
       return testnet
         ? `https://sol-devnet.nownodes.io/${config.NOWNODES_API_KEY}`
         : `https://sol.nownodes.io/${config.NOWNODES_API_KEY}`;
+    case 'bnb':
+      // BSC testnet is available on NOWNodes
+      return testnet
+        ? `https://bsc-testnet.nownodes.io/${config.NOWNODES_API_KEY}`
+        : `https://bsc.nownodes.io/${config.NOWNODES_API_KEY}`;
   }
 }
 
@@ -56,20 +64,18 @@ export function blockbookHeaders(): Record<string, string> {
   return { 'api-key': config.NOWNODES_API_KEY };
 }
 
-/** USDC SPL mint address per network */
-export const USDC_MINT = {
-  mainnet: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-  testnet: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
-} as const;
+/** BEP-20 contract addresses (Binance Smart Chain) */
+export const BEP20_CONTRACTS: Record<string, { mainnet: string; testnet: string }> = {
+  USDT_BEP20: {
+    mainnet: '0x55d398326f99059fF775485246999027B3197955',
+    testnet: '0x337610d27c682E347C9cD60BD4b3b107C9d34dDd', // BSC testnet USDT
+  },
+};
 
-/** ERC-20 contract addresses */
+/** ERC-20 contract addresses (Ethereum — kept for reference, not traded) */
 export const ERC20_CONTRACTS: Record<string, { mainnet: string; testnet: string }> = {
   USDT_ERC20: {
     mainnet: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
     testnet: '0x7169D38820dfd117C3FA1f22a697dBA58d90BA06',
-  },
-  USDC_ERC20: {
-    mainnet: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-    testnet: '0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8',
   },
 };

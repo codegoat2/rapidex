@@ -56,13 +56,20 @@ export interface CreateTradeParams {
   fiatMethod:      FiatMethod;
   direction:       TradeDirection;
   ticketChannelId: string;
-  quoteId:         string;
-  fiatAmount:      string;
-  rate:            string;
-  rateSource:      string;
-  feePercentage:   string;
-  feeAmount:       string;
-  quoteExpiresAt:  Date;
+  // Quote-based (BUY/SELL)
+  quoteId?:        string | null;
+  fiatAmount?:     string | null;
+  rate?:           string | null;
+  rateSource?:     string | null;
+  feePercentage?:  string | null;
+  feeAmount?:      string | null;
+  quoteExpiresAt?: Date | null;
+  // SWAP
+  swapToAsset?:    Asset | null;
+  // FIAT_TO_FIAT
+  fiatToMethod?:   FiatMethod | null;
+  // All directions
+  userNote?:       string | null;
 }
 
 export async function createTrade(params: CreateTradeParams): Promise<DbTrade> {
@@ -76,7 +83,8 @@ export async function createTrade(params: CreateTradeParams): Promise<DbTrade> {
       user_discord_id, asset, amount, fiat_currency,
       fiat_method, direction, ticket_channel_id, expires_at,
       quote_id, fiat_amount, rate, rate_source,
-      fee_percentage_snapshot, fee_amount, quote_expires_at
+      fee_percentage_snapshot, fee_amount, quote_expires_at,
+      swap_to_asset, fiat_to_method, user_note
     ) VALUES (
       ${params.userDiscordId},
       ${params.asset},
@@ -86,13 +94,16 @@ export async function createTrade(params: CreateTradeParams): Promise<DbTrade> {
       ${params.direction},
       ${params.ticketChannelId},
       ${expiresAt.toISOString()},
-      ${params.quoteId},
-      ${params.fiatAmount},
-      ${params.rate},
-      ${params.rateSource},
-      ${params.feePercentage},
-      ${params.feeAmount},
-      ${params.quoteExpiresAt.toISOString()}
+      ${params.quoteId ?? null},
+      ${params.fiatAmount ?? null},
+      ${params.rate ?? null},
+      ${params.rateSource ?? null},
+      ${params.feePercentage ?? null},
+      ${params.feeAmount ?? null},
+      ${params.quoteExpiresAt?.toISOString() ?? null},
+      ${params.swapToAsset ?? null},
+      ${params.fiatToMethod ?? null},
+      ${params.userNote ?? null}
     )
     RETURNING *
   `;

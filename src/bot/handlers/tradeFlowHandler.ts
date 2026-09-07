@@ -40,10 +40,9 @@ import {
   escrowReleaseKey,
 } from '../../security/idempotency';
 import { getExchangerByDiscordId } from '../../admin/exchangerService';
-import { buildTradeEmbed, buildUserActionRow, buildExchangerActionRow } from '../embeds/tradeEmbed';
+import { buildTradeEmbed, buildUserActionRow, buildExchangerActionRow, buildFiatInstructionsEmbed } from '../embeds/tradeEmbed';
 import { COLORS } from '../embeds/colors';
 import { logger } from '../../utils/logger';
-import { config } from '../../config/env';
 import { getRoleAdmin } from '../../config/runtimeConfig';
 import type { DbTrade } from '../../types';
 
@@ -452,28 +451,7 @@ async function notifyAsync(
 // Helpers
 // ---------------------------------------------------------------------------
 
-function buildFiatInstructionsEmbed(trade: DbTrade, exchangerUsername: string): EmbedBuilder {
-  return new EmbedBuilder()
-    .setColor(COLORS.WARNING)
-    .setTitle('💳 Fiat Payment Instructions')
-    .setDescription(
-      [
-        `Please send your payment via **${trade.fiat_method.replace(/_/g, ' ')}** to the exchanger.`,
-        '',
-        `The exchanger will provide their payment details in this channel.`,
-        '',
-        `Once you have sent the payment, click **"I've Sent Payment"** below.`,
-        '',
-        `⚠️ Do not click the button until you have actually sent the payment.`,
-      ].join('\n'),
-    )
-    .addFields(
-      { name: 'Exchanger', value: `@${exchangerUsername}`,           inline: true },
-      { name: 'Asset',     value: trade.asset,                        inline: true },
-      { name: 'Amount',    value: `${parseFloat(trade.amount).toFixed(8)}`, inline: true },
-    )
-    .setTimestamp();
-}
+// buildFiatInstructionsEmbed is imported from ../embeds/tradeEmbed
 
 async function db_auditLog(
   actorDiscordId: string,

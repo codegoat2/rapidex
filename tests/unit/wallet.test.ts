@@ -21,6 +21,7 @@ import {
   deriveLtcAddress,
   deriveEthAddress,
   deriveSolAddress,
+  deriveBnbAddress,
   deriveAllAddresses,
   rederivePrivateKey,
 } from '../../src/wallet/hdWallet';
@@ -49,18 +50,11 @@ describe('HD Wallet derivation', () => {
     expect(result.derivationPath).toBe("m/44'/60'/0'/0/0");
   });
 
-  test('deriveEthAddress with USDT_ERC20 asset', () => {
-    const result = deriveEthAddress(0, 'USDT_ERC20');
-    expect(result.asset).toBe('USDT_ERC20');
-    // Same address as ETH — same derivation path
-    expect(result.address).toBe(deriveEthAddress(0, 'ETH').address);
-  });
-
   test('deriveSolAddress returns base58 public key', () => {
     const result = deriveSolAddress(0);
     expect(result.address).toMatch(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/);
     expect(result.chain).toBe('solana');
-    expect(result.asset).toBe('USDC_SPL');
+    expect(result.asset).toBe('SOL');
   });
 
   test('same account index always produces same address (deterministic)', () => {
@@ -79,7 +73,7 @@ describe('HD Wallet derivation', () => {
     const addresses = deriveAllAddresses(0);
     expect(addresses).toHaveLength(6);
     const assets = addresses.map(a => a.asset).sort();
-    expect(assets).toEqual(['BTC', 'ETH', 'LTC', 'USDC_ERC20', 'USDC_SPL', 'USDT_ERC20'].sort());
+    expect(assets).toEqual(['BNB', 'BTC', 'ETH', 'LTC', 'SOL', 'USDT_BEP20'].sort());
   });
 
   test('rederivePrivateKey produces a 32-byte buffer', () => {

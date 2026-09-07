@@ -1,9 +1,15 @@
 /**
- * Modal Handler — processes modal submissions from Discord.
+ * Modal Handler — processes all modal submissions.
  *
- * Modals used by RapidEx:
- *   - trade_create   : trade creation form (from panel Start Exchange button)
- *   - wallet_address : user submits their wallet address before release
+ * Modals:
+ *   trade_modal:<direction>:<param1>:<param2>
+ *     direction = BUY | SELL | SWAP | FIAT_TO_FIAT
+ *     BUY/SELL:       param1=crypto,      param2=fiatMethod
+ *     SWAP:           param1=fromCrypto,  param2=toCrypto
+ *     FIAT_TO_FIAT:   param1=fromMethod,  param2=toMethod
+ *
+ *   wallet_address:<tradeId>
+ *     exchanger submits user's destination wallet before release
  */
 
 import {
@@ -29,21 +35,26 @@ import { config } from '../../config/env';
 import { getTicketCategory } from '../../config/runtimeConfig';
 import { getSettingBool } from '../../admin/settingsService';
 import { createTradeQuote, consumeTradeQuote, type TradeQuote } from '../../quote/quoteService';
+import { COLORS } from '../embeds/colors';
 import type { Asset, DbTrade, FiatCurrency, FiatMethod, TradeDirection } from '../../types';
 
 // ---------------------------------------------------------------------------
-// Zod schemas for modal field validation
+// Validation schemas
 // ---------------------------------------------------------------------------
 
-const TradeFormSchema = z.object({
-  asset:        z.enum(['BTC', 'LTC', 'ETH', 'USDT_ERC20', 'USDC_ERC20', 'USDC_SPL']),
-  fiat_method:  z.enum(['BANK_TRANSFER', 'REVOLUT', 'WISE', 'PAYPAL', 'CASH_IN_PERSON', 'OTHER']),
-  direction:    z.enum(['BUY', 'SELL']),
-  amount:       z.string().refine((v) => {
-    return /^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(v) && Number.isFinite(Number(v)) && Number(v) > 0;
-  }, 'Amount must be a positive number'),
-  fiat_currency: z.enum(['EUR', 'USD', 'GBP']),
-});
+const VALID_ASSETS   = ['BTC', 'LTC', 'ETH', 'SOL', 'USDT_BEP20', 'BNB'] as const;
+const VALID_METHODS  = [
+  'BANK_TRANSFER', 'REVOLUT', 'WISE', 'PAYPAL',
+  'CASH_IN_PERSON', 'BINANCE_GIFT_CARD', 'PAYSAFE',
+  'APPLE_PAY', 'CASHAPP', 'OTHER',
+] as const;
+const VALID_DIRS     = ['BUY', 'SELL', 'SWAP', 'FIAT_TO_FIAT'] as const;
+const VALID_CURRENCY = ['EUR', 'USD', 'GBP'] as const;
+
+const AmountSchema = z.string().refine(
+  (v) => /^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(v) && Number.isFinite(Number(v)) && Number(v) > 0,
+  'Amount must be a positive number',
+);
 
 const WalletAddressSchema = z.object({
   wallet_address: z.string().min(10).max(200),
@@ -54,20 +65,24 @@ const WalletAddressSchema = z.object({
 // ---------------------------------------------------------------------------
 
 export async function handleModal(interaction: ModalSubmitInteraction): Promise<void> {
-  const [prefix, ...rest] = interaction.customId.split(':');
+  const parts  = interaction.customId.split(':');
+  const prefix = parts[0]!;
 
   try {
-    if (prefix === 'trade_create') {
-      await handleTradeCreate(interaction, rest[0]);
+    if (prefix === 'trade_modal') {
+      // trade_modal:<direction>:<param1>:<param2>
+      const direction = parts[1] as string;
+      const param1    = parts[2] as string;
+      const param2    = parts[3] as string;
+      await handleTradeModal(interaction, direction, param1, param2);
     } else if (prefix === 'wallet_address') {
-      const tradeId = rest[0];
-      await handleWalletAddress(interaction, tradeId);
+      await handleWalletAddress(interaction, parts[1]!);
     } else {
-      logger.warn({ customId: interaction.customId }, 'Unknown modal');
+      logger.warn({ customId: interaction.customId }, 'Unknown modal prefix');
     }
   } catch (err) {
     logger.error({ err, customId: interaction.customId }, 'Modal handler error');
-    const msg = '❌ Something went wrong. Please try again.';
+    const msg = 'Something went wrong. Please try again.';
     if (interaction.replied || interaction.deferred) {
       await interaction.followUp({ content: msg, ephemeral: true });
     } else {
@@ -77,149 +92,376 @@ export async function handleModal(interaction: ModalSubmitInteraction): Promise<
 }
 
 // ---------------------------------------------------------------------------
-// Trade creation modal
+// Trade modal submission
 // ---------------------------------------------------------------------------
 
-async function handleTradeCreate(interaction: ModalSubmitInteraction, selectedAsset?: string): Promise<void> {
+async function handleTradeModal(
+  interaction: ModalSubmitInteraction,
+  direction: string,
+  param1: string,
+  param2: string,
+): Promise<void> {
   await interaction.deferReply({ ephemeral: true });
 
   if (await getSettingBool('MAINTENANCE_MODE')) {
-    await interaction.editReply('🛠️ RapidEx is temporarily in maintenance mode. Please try again later.');
+    await interaction.editReply('RapidEx is temporarily in maintenance mode. Please try again later.');
     return;
   }
 
-  // Rate limit
   if (!checkTicketRateLimit(interaction.user.id)) {
-    await interaction.editReply('❌ You\'re creating trades too quickly. Please wait before trying again.');
+    await interaction.editReply('You are creating trades too quickly. Please wait before trying again.');
     return;
   }
 
-  // Validate fields
-  const raw = {
-    asset:         selectedAsset?.toUpperCase() ?? '',
-    fiat_method:   interaction.fields.getTextInputValue('fiat_method').toUpperCase(),
-    direction:     interaction.fields.getTextInputValue('direction').toUpperCase(),
-    amount:        interaction.fields.getTextInputValue('amount').trim(),
-    fiat_currency: interaction.fields.getTextInputValue('fiat_currency').toUpperCase(),
-  };
-
-  const parsed = TradeFormSchema.safeParse(raw);
-  if (!parsed.success) {
-    const errors = parsed.error.errors.map((e) => `• ${e.path.join('.')}: ${e.message}`).join('\n');
-    await interaction.editReply(`❌ Invalid input:\n${errors}`);
+  // ── Validate direction ───────────────────────────────────────────────────
+  if (!(VALID_DIRS as readonly string[]).includes(direction)) {
+    await interaction.editReply('Invalid trade direction.');
     return;
   }
 
-  const { asset, fiat_method, direction, amount, fiat_currency } = parsed.data;
+  // ── Read modal fields ────────────────────────────────────────────────────
+  const rawAmount   = interaction.fields.getTextInputValue('amount').trim();
+  const rawCurrency = direction !== 'SWAP'
+    ? interaction.fields.getTextInputValue('fiat_currency').trim().toUpperCase()
+    : 'EUR'; // default; not used for SWAP
+  const userNote    = (interaction.fields.fields.get('user_note')?.value ?? '').trim() || null;
 
-  if (direction === 'SELL') {
-    await interaction.editReply('❌ SELL trades are not available yet. Please choose BUY.');
+  // Amount validation
+  const amountResult = AmountSchema.safeParse(rawAmount);
+  if (!amountResult.success) {
+    await interaction.editReply('Invalid amount. Please enter a positive number.');
     return;
   }
 
-  const quote = await createTradeQuote({
-    userDiscordId: interaction.user.id,
-    asset: asset as Asset,
-    amount,
-    direction: direction as TradeDirection,
-    fiatCurrency: fiat_currency as FiatCurrency,
-    fiatMethod: fiat_method as FiatMethod,
-  });
+  // Currency validation (skip for SWAP)
+  if (direction !== 'SWAP' && !(VALID_CURRENCY as readonly string[]).includes(rawCurrency)) {
+    await interaction.editReply('Invalid currency. Use EUR, USD, or GBP.');
+    return;
+  }
 
-  const quoteEmbed = new EmbedBuilder()
-    .setColor(0x5865F2)
-    .setTitle('Review your locked quote')
-    .setDescription('This quote expires in 5 minutes. Confirm to create your private ticket.')
+  // ── Validate params per direction ────────────────────────────────────────
+  switch (direction) {
+    case 'BUY':
+    case 'SELL': {
+      if (!(VALID_ASSETS as readonly string[]).includes(param1)) {
+        await interaction.editReply('Invalid crypto asset.'); return;
+      }
+      if (!(VALID_METHODS as readonly string[]).includes(param2)) {
+        await interaction.editReply('Invalid payment method.'); return;
+      }
+      break;
+    }
+    case 'SWAP': {
+      if (!(VALID_ASSETS as readonly string[]).includes(param1) || !(VALID_ASSETS as readonly string[]).includes(param2)) {
+        await interaction.editReply('Invalid swap assets.'); return;
+      }
+      if (param1 === param2) {
+        await interaction.editReply('Cannot swap a coin for itself.'); return;
+      }
+      break;
+    }
+    case 'FIAT_TO_FIAT': {
+      if (!(VALID_METHODS as readonly string[]).includes(param1) || !(VALID_METHODS as readonly string[]).includes(param2)) {
+        await interaction.editReply('Invalid fiat methods.'); return;
+      }
+      if (param1 === param2) {
+        await interaction.editReply('Sending and receiving method cannot be the same.'); return;
+      }
+      break;
+    }
+  }
+
+  const tradeDirection = direction as TradeDirection;
+  const fiatCurrency   = rawCurrency as FiatCurrency;
+
+  // ── BUY / SELL: get a live quote ─────────────────────────────────────────
+  if (tradeDirection === 'BUY' || tradeDirection === 'SELL') {
+    const asset     = param1 as Asset;
+    const fiatMethod = param2 as FiatMethod;
+
+    let quote: TradeQuote;
+    try {
+      quote = await createTradeQuote({
+        userDiscordId: interaction.user.id,
+        asset,
+        amount:        rawAmount,
+        direction:     tradeDirection,
+        fiatCurrency,
+        fiatMethod,
+        userNote,
+      });
+    } catch (err) {
+      await interaction.editReply(`Could not get a quote: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+
+    const quoteEmbed = new EmbedBuilder()
+      .setColor(COLORS.PRIMARY)
+      .setTitle('Confirm your quote')
+      .setDescription('This quote is locked for 5 minutes. Confirm to open your private trade ticket.')
+      .addFields(
+        { name: tradeDirection === 'BUY' ? 'You receive' : 'You send',
+          value: `\`${parseFloat(quote.amount).toFixed(8)} ${quote.asset}\``, inline: true },
+        { name: 'Fiat total',
+          value: `\`${parseFloat(quote.fiatAmount).toFixed(2)} ${quote.fiatCurrency}\``, inline: true },
+        { name: 'Rate',
+          value: `\`1 ${quote.asset} = ${parseFloat(quote.rate).toFixed(2)} ${quote.fiatCurrency}\``, inline: false },
+        { name: 'Fee',
+          value: `\`${parseFloat(quote.feeAmount).toFixed(8)} ${quote.asset} (${quote.feePercentage}%)\``, inline: true },
+        { name: 'Expires',
+          value: `<t:${Math.floor(quote.expiresAt.getTime() / 1000)}:R>`, inline: true },
+      )
+      .setTimestamp();
+
+    if (userNote) quoteEmbed.addFields({ name: 'Your note', value: userNote, inline: false });
+
+    await interaction.editReply({
+      embeds: [quoteEmbed],
+      components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`quote_confirm:${quote.id}`)
+          .setLabel('Confirm — Open Ticket')
+          .setStyle(ButtonStyle.Success),
+        new ButtonBuilder()
+          .setCustomId(`quote_cancel:${quote.id}`)
+          .setLabel('Cancel')
+          .setStyle(ButtonStyle.Secondary),
+      )],
+    });
+    return;
+  }
+
+  // ── SWAP / FIAT_TO_FIAT: no live quote needed — go straight to ticket ────
+  const asset      = (tradeDirection === 'SWAP' ? param1 : 'BTC') as Asset; // BTC placeholder for F2F
+  const fiatMethod = (tradeDirection === 'FIAT_TO_FIAT' ? param1 : 'OTHER') as FiatMethod;
+  const swapToAsset      = tradeDirection === 'SWAP' ? (param2 as Asset) : null;
+  const fiatToMethod     = tradeDirection === 'FIAT_TO_FIAT' ? (param2 as FiatMethod) : null;
+
+  const confirmEmbed = new EmbedBuilder()
+    .setColor(COLORS.PRIMARY)
+    .setTitle(tradeDirection === 'SWAP' ? 'Confirm Swap' : 'Confirm Fiat to Fiat')
+    .setDescription('Confirm to open your private trade ticket with a verified exchanger.')
     .addFields(
-      { name: 'Asset amount', value: `${quote.amount} ${quote.asset}`, inline: true },
-      { name: 'Fiat total', value: `${quote.fiatAmount} ${quote.fiatCurrency}`, inline: true },
-      { name: 'Rate', value: `1 ${quote.asset} = ${quote.rate} ${quote.fiatCurrency}`, inline: false },
-      { name: 'Fee', value: `${quote.feeAmount} ${quote.asset} (${quote.feePercentage}%)`, inline: true },
-      { name: 'Expires', value: `<t:${Math.floor(quote.expiresAt.getTime() / 1000)}:R>`, inline: true },
-    );
+      tradeDirection === 'SWAP'
+        ? [
+            { name: 'You send',    value: `\`${rawAmount} ${param1}\``, inline: true },
+            { name: 'You receive', value: `\`${param2}\``,              inline: true },
+          ]
+        : [
+            { name: 'You send via',    value: param1, inline: true },
+            { name: 'You receive via', value: param2, inline: true },
+            { name: 'Amount',          value: `\`${rawAmount} ${rawCurrency}\``, inline: true },
+          ],
+    )
+    .setTimestamp();
+
+  if (userNote) confirmEmbed.addFields({ name: 'Your note', value: userNote, inline: false });
+
+  // Encode the trade params into the button customId for retrieval on confirm
+  const encoded = encodeURIComponent(JSON.stringify({
+    direction: tradeDirection,
+    asset,
+    amount: rawAmount,
+    fiatCurrency,
+    fiatMethod,
+    swapToAsset,
+    fiatToMethod,
+    userNote,
+  }));
 
   await interaction.editReply({
-    embeds: [quoteEmbed],
+    embeds: [confirmEmbed],
     components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
-      new ButtonBuilder().setCustomId(`quote_confirm:${quote.id}`).setLabel('Confirm and create ticket').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId(`quote_cancel:${quote.id}`).setLabel('Cancel').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(`noq_confirm:${encoded}`)
+        .setLabel('Confirm — Open Ticket')
+        .setStyle(ButtonStyle.Success),
+      new ButtonBuilder()
+        .setCustomId(`quote_cancel:noquote`)
+        .setLabel('Cancel')
+        .setStyle(ButtonStyle.Secondary),
     )],
   });
 }
+
+// ---------------------------------------------------------------------------
+// Quote confirmation (BUY / SELL)
+// ---------------------------------------------------------------------------
 
 export async function handleQuoteConfirmation(interaction: ButtonInteraction, quoteId: string): Promise<void> {
   await interaction.deferReply({ ephemeral: true });
   const quote = await consumeTradeQuote(quoteId, interaction.user.id);
   if (!quote) {
-    await interaction.editReply('❌ This quote has expired or was already used. Start a new exchange.');
+    await interaction.editReply('This quote has expired or was already used. Start a new exchange.');
     return;
   }
-  if (quote.direction === 'SELL') {
-    await interaction.editReply('❌ SELL settlement is not available yet. Please choose BUY.');
-    return;
-  }
-  await createTicketForQuote(interaction, quote);
+  await createTicketFromQuote(interaction, quote);
 }
 
-async function createTicketForQuote(
-  interaction: ModalSubmitInteraction | ButtonInteraction,
+// ---------------------------------------------------------------------------
+// No-quote confirmation (SWAP / FIAT_TO_FIAT)
+// ---------------------------------------------------------------------------
+
+export async function handleNoQuoteConfirmation(
+  interaction: ButtonInteraction,
+  encodedParams: string,
+): Promise<void> {
+  await interaction.deferReply({ ephemeral: true });
+
+  let params: {
+    direction: TradeDirection;
+    asset: Asset;
+    amount: string;
+    fiatCurrency: FiatCurrency;
+    fiatMethod: FiatMethod;
+    swapToAsset: Asset | null;
+    fiatToMethod: FiatMethod | null;
+    userNote: string | null;
+  };
+
+  try {
+    params = JSON.parse(decodeURIComponent(encodedParams));
+  } catch {
+    await interaction.editReply('Invalid trade parameters. Please try again.');
+    return;
+  }
+
+  await createTicketDirect(interaction, params);
+}
+
+// ---------------------------------------------------------------------------
+// Ticket creation helpers
+// ---------------------------------------------------------------------------
+
+async function createTicketFromQuote(
+  interaction: ButtonInteraction,
   quote: TradeQuote,
 ): Promise<void> {
   const guild = interaction.guild;
-  if (!guild) throw new Error('Trade tickets can only be created inside a server');
+  if (!guild) { await interaction.editReply('Trade tickets can only be created inside a server.'); return; }
 
-  const safeUsername = interaction.user.username.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').slice(0, 32).replace(/^-|-$/g, '') || 'user';
+  const channel = await openTicketChannel(interaction);
+  if (!channel) return;
+
+  let trade: DbTrade;
+  try {
+    trade = await createTrade({
+      userDiscordId:  interaction.user.id,
+      asset:          quote.asset,
+      amount:         quote.amount,
+      fiatCurrency:   quote.fiatCurrency,
+      fiatMethod:     quote.fiatMethod,
+      direction:      quote.direction,
+      ticketChannelId: channel.id,
+      quoteId:        quote.id,
+      fiatAmount:     quote.fiatAmount,
+      rate:           quote.rate,
+      rateSource:     quote.rateSource,
+      feePercentage:  quote.feePercentage,
+      feeAmount:      quote.feeAmount,
+      quoteExpiresAt: quote.expiresAt,
+      userNote:       quote.userNote ?? null,
+    });
+  } catch (err) {
+    await channel.delete('Trade creation failed').catch(() => undefined);
+    throw err;
+  }
+
+  await postTicketMessage(channel, trade, interaction.user.id);
+  await interaction.editReply(`Your trade ticket is ready: <#${channel.id}>`);
+  logger.info({ tradeId: trade.id, userDiscordId: interaction.user.id }, 'Trade ticket created (quote)');
+}
+
+async function createTicketDirect(
+  interaction: ButtonInteraction,
+  params: {
+    direction: TradeDirection;
+    asset: Asset;
+    amount: string;
+    fiatCurrency: FiatCurrency;
+    fiatMethod: FiatMethod;
+    swapToAsset: Asset | null;
+    fiatToMethod: FiatMethod | null;
+    userNote: string | null;
+  },
+): Promise<void> {
+  const channel = await openTicketChannel(interaction);
+  if (!channel) return;
+
+  let trade: DbTrade;
+  try {
+    trade = await createTrade({
+      userDiscordId:   interaction.user.id,
+      asset:           params.asset,
+      amount:          params.amount,
+      fiatCurrency:    params.fiatCurrency,
+      fiatMethod:      params.fiatMethod,
+      direction:       params.direction,
+      ticketChannelId: channel.id,
+      swapToAsset:     params.swapToAsset,
+      fiatToMethod:    params.fiatToMethod,
+      userNote:        params.userNote,
+    });
+  } catch (err) {
+    await channel.delete('Trade creation failed').catch(() => undefined);
+    throw err;
+  }
+
+  await postTicketMessage(channel, trade, interaction.user.id);
+  await interaction.editReply(`Your trade ticket is ready: <#${channel.id}>`);
+  logger.info({ tradeId: trade.id, userDiscordId: interaction.user.id }, 'Trade ticket created (no-quote)');
+}
+
+async function openTicketChannel(interaction: ButtonInteraction): Promise<TextChannel | null> {
+  const guild = interaction.guild;
+  if (!guild) {
+    await interaction.editReply('Trade tickets can only be created inside a server.');
+    return null;
+  }
+
+  const safeUsername = interaction.user.username
+    .toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-')
+    .slice(0, 32).replace(/^-|-$/g, '') || 'user';
   const channelName = `trade-${safeUsername}-${Date.now().toString(36)}`.slice(0, 100);
+
   const configuredCategoryId = await getTicketCategory();
   const category = configuredCategoryId ? guild.channels.cache.get(configuredCategoryId) : undefined;
-  const parent = category?.type === ChannelType.GuildCategory ? category.id : undefined;
+  const parent   = category?.type === ChannelType.GuildCategory ? category.id : undefined;
 
-  const ticketChannel = await guild.channels.create({
+  return guild.channels.create({
     name: channelName,
     type: ChannelType.GuildText,
     parent,
     permissionOverwrites: [
       { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-      { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
+      {
+        id: interaction.user.id,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.ReadMessageHistory,
+        ],
+      },
     ],
     topic: `RapidEx trade ticket for <@${interaction.user.id}>`,
-  });
+  }) as Promise<TextChannel>;
+}
 
-  let trade: DbTrade;
-  try {
-    trade = await createTrade({
-      userDiscordId: interaction.user.id,
-      asset: quote.asset,
-      amount: quote.amount,
-      fiatCurrency: quote.fiatCurrency,
-      fiatMethod: quote.fiatMethod,
-      direction: quote.direction,
-      ticketChannelId: ticketChannel.id,
-      quoteId: quote.id,
-      fiatAmount: quote.fiatAmount,
-      rate: quote.rate,
-      rateSource: quote.rateSource,
-      feePercentage: quote.feePercentage,
-      feeAmount: quote.feeAmount,
-      quoteExpiresAt: quote.expiresAt,
-    });
-  } catch (error) {
-    await ticketChannel.delete('Trade creation failed; removing orphan ticket').catch(() => undefined);
-    throw error;
-  }
-
-  const embed = buildTradeEmbed(trade).setDescription(`**User:** <@${interaction.user.id}>\n_Waiting for a verified exchanger to claim this trade..._`);
-  await (ticketChannel as TextChannel).send({
-    content: `<@${interaction.user.id}> Your trade ticket is ready.`,
-    embeds: [embed],
+async function postTicketMessage(
+  channel: TextChannel,
+  trade: DbTrade,
+  userDiscordId: string,
+): Promise<void> {
+  const embed = buildTradeEmbed(trade);
+  await channel.send({
+    content: `<@${userDiscordId}> Your trade ticket has been opened. A verified exchanger will claim it shortly.`,
+    embeds:     [embed],
     components: [buildClaimRow(trade.id)],
   });
-  await interaction.editReply(`✅ Your trade ticket has been created: <#${ticketChannel.id}>`);
-  logger.info({ tradeId: trade.id, userDiscordId: interaction.user.id, quoteId: quote.id }, 'Trade ticket created');
 }
 
 // ---------------------------------------------------------------------------
-// Wallet address modal (submitted when exchanger clicks Release)
+// Wallet address modal (exchanger submits before releasing)
 // ---------------------------------------------------------------------------
 
 async function handleWalletAddress(
@@ -228,39 +470,52 @@ async function handleWalletAddress(
 ): Promise<void> {
   await interaction.deferReply({ ephemeral: true });
 
-  const raw = { wallet_address: interaction.fields.getTextInputValue('wallet_address').trim() };
+  const raw    = { wallet_address: interaction.fields.getTextInputValue('wallet_address').trim() };
   const parsed = WalletAddressSchema.safeParse(raw);
 
   if (!parsed.success) {
-    await interaction.editReply('❌ Invalid wallet address.');
+    await interaction.editReply('Invalid wallet address format.');
     return;
   }
 
   const trade = await (await import('../../engine/tradeService')).getTradeById(tradeId);
-  if (!trade || !isValidWalletAddress(trade.asset, parsed.data.wallet_address)) {
-    await interaction.editReply('❌ Wallet address is invalid for this asset or network.');
+  if (!trade) {
+    await interaction.editReply('Trade not found.');
     return;
   }
 
-  // Delegate to trade engine handler
+  if (!isValidWalletAddress(trade.asset, parsed.data.wallet_address)) {
+    await interaction.editReply('Wallet address is not valid for this asset. Please check and try again.');
+    return;
+  }
+
   const { handleWalletAddressSubmit } = await import('./tradeFlowHandler');
   await handleWalletAddressSubmit(interaction, tradeId, parsed.data.wallet_address);
 }
 
+// ---------------------------------------------------------------------------
+// Address validation
+// ---------------------------------------------------------------------------
+
 function isValidWalletAddress(asset: Asset, address: string): boolean {
   try {
-    if (asset === 'ETH' || asset === 'USDT_ERC20' || asset === 'USDC_ERC20') {
+    if (asset === 'ETH' || asset === 'BNB' || asset === 'USDT_BEP20') {
       return ethers.isAddress(address);
     }
-    if (asset === 'USDC_SPL') {
+    if (asset === 'SOL') {
       new PublicKey(address);
       return true;
     }
-
+    // BTC / LTC
     const network = config.NETWORK === 'testnet'
       ? bitcoin.networks.testnet
       : asset === 'LTC'
-        ? { messagePrefix: '\\x19Litecoin Signed Message:\\n', bech32: 'ltc', bip32: { public: 0x019da462, private: 0x019d9cfe }, pubKeyHash: 0x30, scriptHash: 0x32, wif: 0xb0 }
+        ? {
+            messagePrefix: '\x19Litecoin Signed Message:\n',
+            bech32: 'ltc',
+            bip32: { public: 0x019da462, private: 0x019d9cfe },
+            pubKeyHash: 0x30, scriptHash: 0x32, wif: 0xb0,
+          }
         : bitcoin.networks.bitcoin;
     bitcoin.address.toOutputScript(address, network);
     return true;

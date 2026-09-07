@@ -59,6 +59,7 @@ const envSchema = z.object({
   HOT_WALLET_LTC: z.string().default(''),
   HOT_WALLET_ETH: z.string().default(''),
   HOT_WALLET_SOL: z.string().default(''),
+  HOT_WALLET_BNB: z.string().default(''),
 
   // ---- Sentry (optional) --------------------------------------------
   SENTRY_DSN: z.string().optional(),
@@ -80,11 +81,12 @@ const envSchema = z.object({
   MIN_TRADE_AMOUNT: z.coerce.number().positive().default(0.000001),
   MAX_TRADE_AMOUNT: z.coerce.number().positive().default(1000000),
 
-  // ---- Hot wallet thresholds -----------------------------------------
+  // ---- Hot wallet alert thresholds -----------------------------------------
   MIN_HOT_WALLET_BTC: z.coerce.number().positive().default(0.01),
   MIN_HOT_WALLET_LTC: z.coerce.number().positive().default(1.0),
   MIN_HOT_WALLET_ETH: z.coerce.number().positive().default(0.1),
   MIN_HOT_WALLET_SOL: z.coerce.number().positive().default(5.0),
+  MIN_HOT_WALLET_BNB: z.coerce.number().positive().default(0.5),
 });
 
 const parsed = envSchema.safeParse(process.env);

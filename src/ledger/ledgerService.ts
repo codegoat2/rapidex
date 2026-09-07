@@ -675,7 +675,7 @@ export async function getBalance(exchangerId: string, asset: Asset): Promise<Bal
  * Returns balances for all assets for an exchanger.
  */
 export async function getAllBalances(exchangerId: string): Promise<AllBalances> {
-  const assets: Asset[] = ['BTC', 'LTC', 'ETH', 'USDT_ERC20', 'USDC_ERC20', 'USDC_SPL'];
+  const assets: Asset[] = ['BTC', 'LTC', 'ETH', 'SOL', 'BNB', 'USDT_BEP20'];
   const result: AllBalances = {};
 
   await Promise.all(

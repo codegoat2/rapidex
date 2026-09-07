@@ -2,8 +2,13 @@
  * On-Chain Transaction Engine — NOWNodes provider
  *
  * BTC/LTC: NOWNodes Blockbook REST API (UTXO + broadcast)
- * ETH/ERC-20: NOWNodes ETH JSON-RPC + ethers.js
- * SOL/SPL: NOWNodes Solana JSON-RPC + @solana/web3.js
+ * ETH:     NOWNodes ETH JSON-RPC + ethers.js
+ * SOL:     NOWNodes Solana JSON-RPC + @solana/web3.js
+ * BNB:     NOWNodes BSC JSON-RPC + ethers.js  (native send)
+ * USDT_BEP20: NOWNodes BSC JSON-RPC + ethers.js (BEP-20 transfer)
+ *
+ * Supported tradeable assets: BTC, LTC, ETH, SOL, USDT_BEP20
+ * BNB is also supported as a direct tradeable asset.
  */
 
 import axios from 'axios';
@@ -13,20 +18,15 @@ import * as ecc from 'tiny-secp256k1';
 import { ethers } from 'ethers';
 import {
   Connection, PublicKey, Transaction,
+  SystemProgram, LAMPORTS_PER_SOL,
   sendAndConfirmTransaction,
 } from '@solana/web3.js';
-import {
-  getOrCreateAssociatedTokenAccount,
-  createTransferInstruction,
-  getMint,
-} from '@solana/spl-token';
 import { config } from '../config/env';
-import { rpcUrl, blockbookUrl, blockbookHeaders, ERC20_CONTRACTS, USDC_MINT } from '../config/nownodes';
+import { rpcUrl, blockbookUrl, blockbookHeaders, BEP20_CONTRACTS } from '../config/nownodes';
 import { logger } from '../utils/logger';
 import { rederivePrivateKey, rederiveSolKeypair } from '../wallet/hdWallet';
 import { getDerivationPath } from '../wallet/addressService';
-import { recordWithdrawal } from '../ledger/ledgerService';
-import { recordFee } from '../ledger/ledgerService';
+import { recordWithdrawal, recordFee } from '../ledger/ledgerService';
 import { feeKey, withdrawalKey } from '../security/idempotency';
 import { db } from '../db/client';
 import { getTradeById, transitionTrade } from './tradeService';
@@ -42,13 +42,27 @@ const ECPair = ECPairFactory(ecc);
 function explorerLink(asset: Asset, txId: string): string {
   const t = config.NETWORK === 'testnet';
   switch (asset) {
-    case 'BTC':        return t ? `https://live.blockcypher.com/btc-testnet/tx/${txId}/` : `https://blockstream.info/tx/${txId}`;
-    case 'LTC':        return `https://blockchair.com/litecoin/transaction/${txId}`;
+    case 'BTC':
+      return t
+        ? `https://live.blockcypher.com/btc-testnet/tx/${txId}/`
+        : `https://blockstream.info/tx/${txId}`;
+    case 'LTC':
+      return `https://blockchair.com/litecoin/transaction/${txId}`;
     case 'ETH':
-    case 'USDT_ERC20':
-    case 'USDC_ERC20': return t ? `https://sepolia.etherscan.io/tx/${txId}` : `https://etherscan.io/tx/${txId}`;
-    case 'USDC_SPL':   return t ? `https://explorer.solana.com/tx/${txId}?cluster=devnet` : `https://solscan.io/tx/${txId}`;
-    default:           return txId;
+      return t
+        ? `https://sepolia.etherscan.io/tx/${txId}`
+        : `https://etherscan.io/tx/${txId}`;
+    case 'SOL':
+      return t
+        ? `https://explorer.solana.com/tx/${txId}?cluster=devnet`
+        : `https://solscan.io/tx/${txId}`;
+    case 'BNB':
+    case 'USDT_BEP20':
+      return t
+        ? `https://testnet.bscscan.com/tx/${txId}`
+        : `https://bscscan.com/tx/${txId}`;
+    default:
+      return txId;
   }
 }
 
@@ -96,9 +110,9 @@ export async function sendTradePayment(
     case 'BTC':        txId = await sendBtcLtc(trade, derivationPath, 'bitcoin');  break;
     case 'LTC':        txId = await sendBtcLtc(trade, derivationPath, 'litecoin'); break;
     case 'ETH':        txId = await sendEth(trade, derivationPath);                break;
-    case 'USDT_ERC20':
-    case 'USDC_ERC20': txId = await sendErc20(trade, derivationPath);              break;
-    case 'USDC_SPL':   txId = await sendSplUsdc(trade, derivationPath);            break;
+    case 'SOL':        txId = await sendSol(trade, derivationPath);                break;
+    case 'BNB':        txId = await sendBnb(trade, derivationPath);                break;
+    case 'USDT_BEP20': txId = await sendBep20(trade, derivationPath);              break;
     default:           throw new Error(`Unsupported asset: ${String(trade.asset)}`);
   }
 
@@ -168,15 +182,14 @@ async function sendBtcLtc(
   const feeRes = await axios.get<{ result: string }>(
     `${bbUrl}/estimatefee/3`, { headers, timeout: 10000 },
   );
-  const feePerKb    = parseFloat(feeRes.data.result ?? '0.0002') * 1e8;
-  const feePerByte  = Math.ceil(feePerKb / 1024);
+  const feePerKb   = parseFloat(feeRes.data.result ?? '0.0002') * 1e8;
+  const feePerByte = Math.ceil(feePerKb / 1024);
 
   // Build PSBT
   const psbt = new bitcoin.Psbt({ network });
   let inputTotal = 0;
 
   for (const utxo of utxos) {
-    // Fetch raw tx hex for witness UTXO
     const txRes = await axios.get<{ hex: string }>(
       `${bbUrl}/tx-specific/${utxo.txid}`, { headers, timeout: 10000 },
     );
@@ -188,7 +201,7 @@ async function sendBtcLtc(
       },
     });
     inputTotal += parseInt(utxo.value, 10);
-    void txRes; // hex not needed for segwit inputs
+    void txRes;
   }
 
   const sendSatoshis  = Math.round(parseFloat(trade.amount) * 1e8);
@@ -218,14 +231,14 @@ async function sendBtcLtc(
 // ---------------------------------------------------------------------------
 
 async function sendEth(trade: DbTrade, derivationPath: string): Promise<string> {
-  const provider  = new ethers.JsonRpcProvider(rpcUrl('eth'));
+  const provider   = new ethers.JsonRpcProvider(rpcUrl('eth'));
   const privateKey = rederivePrivateKey(derivationPath);
-  const wallet    = new ethers.Wallet(privateKey.toString('hex'), provider);
-  const value     = ethers.parseEther(trade.amount);
-  const feeData   = await provider.getFeeData();
+  const wallet     = new ethers.Wallet(privateKey.toString('hex'), provider);
+  const value      = ethers.parseEther(trade.amount);
+  const feeData    = await provider.getFeeData();
 
   const tx = await wallet.sendTransaction({
-    to: trade.user_wallet_address!,
+    to:                   trade.user_wallet_address!,
     value,
     maxFeePerGas:         feeData.maxFeePerGas ?? undefined,
     maxPriorityFeePerGas: feeData.maxPriorityFeePerGas ?? undefined,
@@ -234,52 +247,70 @@ async function sendEth(trade: DbTrade, derivationPath: string): Promise<string> 
 }
 
 // ---------------------------------------------------------------------------
-// ERC-20 (USDT / USDC) — NOWNodes JSON-RPC + ethers.js
+// SOL — NOWNodes Solana JSON-RPC + @solana/web3.js (native SOL transfer)
 // ---------------------------------------------------------------------------
 
-const ERC20_ABI = [
+async function sendSol(trade: DbTrade, derivationPath: string): Promise<string> {
+  const connection = new Connection(rpcUrl('sol'), 'confirmed');
+  const keypair    = rederiveSolKeypair(derivationPath);
+  const lamports   = Math.round(parseFloat(trade.amount) * LAMPORTS_PER_SOL);
+
+  const tx = new Transaction().add(
+    SystemProgram.transfer({
+      fromPubkey: keypair.publicKey,
+      toPubkey:   new PublicKey(trade.user_wallet_address!),
+      lamports,
+    }),
+  );
+
+  const sig = await sendAndConfirmTransaction(connection, tx, [keypair], { commitment: 'confirmed' });
+  return sig;
+}
+
+// ---------------------------------------------------------------------------
+// BNB — NOWNodes BSC JSON-RPC + ethers.js (native BNB transfer)
+// ---------------------------------------------------------------------------
+
+async function sendBnb(trade: DbTrade, derivationPath: string): Promise<string> {
+  const provider   = new ethers.JsonRpcProvider(rpcUrl('bnb'));
+  const privateKey = rederivePrivateKey(derivationPath);
+  const wallet     = new ethers.Wallet(privateKey.toString('hex'), provider);
+  const value      = ethers.parseEther(trade.amount);
+  const feeData    = await provider.getFeeData();
+
+  const tx = await wallet.sendTransaction({
+    to:                   trade.user_wallet_address!,
+    value,
+    maxFeePerGas:         feeData.maxFeePerGas ?? undefined,
+    maxPriorityFeePerGas: feeData.maxPriorityFeePerGas ?? undefined,
+  });
+  return tx.hash;
+}
+
+// ---------------------------------------------------------------------------
+// USDT BEP-20 — NOWNodes BSC JSON-RPC + ethers.js
+// ---------------------------------------------------------------------------
+
+const BEP20_ABI = [
   'function transfer(address to, uint256 amount) returns (bool)',
   'function decimals() view returns (uint8)',
 ];
 
-async function sendErc20(trade: DbTrade, derivationPath: string): Promise<string> {
+async function sendBep20(trade: DbTrade, derivationPath: string): Promise<string> {
   const netKey    = config.NETWORK === 'testnet' ? 'testnet' : 'mainnet';
-  const provider  = new ethers.JsonRpcProvider(rpcUrl('eth'));
+  const provider  = new ethers.JsonRpcProvider(rpcUrl('bnb'));
   const privateKey = rederivePrivateKey(derivationPath);
   const wallet    = new ethers.Wallet(privateKey.toString('hex'), provider);
 
-  const contractAddress = ERC20_CONTRACTS[trade.asset]?.[netKey];
-  if (!contractAddress) throw new Error(`No ERC-20 contract for ${trade.asset} on ${netKey}`);
+  const contractAddress = BEP20_CONTRACTS[trade.asset]?.[netKey];
+  if (!contractAddress) throw new Error(`No BEP-20 contract for ${trade.asset} on ${netKey}`);
 
-  const contract = new ethers.Contract(contractAddress, ERC20_ABI, wallet);
+  const contract = new ethers.Contract(contractAddress, BEP20_ABI, wallet);
   const decimals = await contract.decimals() as bigint;
   const amount   = ethers.parseUnits(trade.amount, decimals);
 
   const tx = await (contract.transfer(trade.user_wallet_address!, amount) as Promise<ethers.ContractTransactionResponse>);
   return tx.hash;
-}
-
-// ---------------------------------------------------------------------------
-// SOL/SPL USDC — NOWNodes Solana RPC + @solana/web3.js
-// ---------------------------------------------------------------------------
-
-async function sendSplUsdc(trade: DbTrade, derivationPath: string): Promise<string> {
-  const testnet    = config.NETWORK === 'testnet';
-  const connection = new Connection(rpcUrl('sol'), 'confirmed');
-  const keypair    = rederiveSolKeypair(derivationPath);
-  const mintAddr   = testnet ? USDC_MINT.testnet : USDC_MINT.mainnet;
-  const mint       = new PublicKey(mintAddr);
-  const mintInfo   = await getMint(connection, mint);
-  const amount     = BigInt(Math.round(parseFloat(trade.amount) * 10 ** mintInfo.decimals));
-
-  const fromAta = await getOrCreateAssociatedTokenAccount(connection, keypair, mint, keypair.publicKey);
-  const toAta   = await getOrCreateAssociatedTokenAccount(connection, keypair, mint, new PublicKey(trade.user_wallet_address!));
-
-  const tx  = new Transaction().add(
-    createTransferInstruction(fromAta.address, toAta.address, keypair.publicKey, amount),
-  );
-  const sig = await sendAndConfirmTransaction(connection, tx, [keypair], { commitment: 'confirmed' });
-  return sig;
 }
 
 // ---------------------------------------------------------------------------
@@ -338,7 +369,8 @@ async function getConfirmations(asset: Asset, txId: string): Promise<number> {
     );
     return res.data.confirmations ?? 0;
   }
-  return config.TIMEOUT_CRYPTO_SENT_CONFIRMATIONS; // ETH/SOL confirmed after broadcast
+  // ETH, SOL, BNB, USDT_BEP20 — considered confirmed once broadcast
+  return config.TIMEOUT_CRYPTO_SENT_CONFIRMATIONS;
 }
 
 // ---------------------------------------------------------------------------
@@ -357,10 +389,10 @@ function getBitcoinNetwork(chain: 'bitcoin' | 'litecoin', testnet: boolean): bit
 function sleep(ms: number): Promise<void> { return new Promise((r) => setTimeout(r, ms)); }
 
 function calculateFee(amount: string, percentage: string, minimum: string): string {
-  const amountUnits = ethers.parseUnits(amount, 18);
+  const amountUnits     = ethers.parseUnits(amount, 18);
   const percentageUnits = ethers.parseUnits(percentage, 4);
-  const minimumUnits = ethers.parseUnits(minimum, 18);
-  const feeUnits = amountUnits * percentageUnits / (100n * 10_000n);
-  const result = feeUnits > minimumUnits ? feeUnits : minimumUnits;
+  const minimumUnits    = ethers.parseUnits(minimum, 18);
+  const feeUnits        = amountUnits * percentageUnits / (100n * 10_000n);
+  const result          = feeUnits > minimumUnits ? feeUnits : minimumUnits;
   return ethers.formatUnits(result, 18);
 }

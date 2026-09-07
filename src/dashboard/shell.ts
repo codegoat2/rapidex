@@ -684,7 +684,7 @@ function openDebitModal(id, name) {
 function ledgerForm(id, type) {
   return \`<div class="form-grid">
     <div class="form-group"><label>Asset</label><select id="lf-asset">
-      \${['BTC','LTC','ETH','USDT_ERC20','USDC_ERC20','USDC_SPL'].map(a=>'<option>'+a+'</option>').join('')}
+      \${['BTC','LTC','ETH','SOL','BNB','USDT_BEP20'].map(a=>'<option>'+a+'</option>').join('')}
     </select></div>
     <div class="form-group"><label>Amount</label><input id="lf-amount" placeholder="0.00000000"></div>
     <div class="form-group"><label>Reason</label><input id="lf-reason" placeholder="Admin adjustment"></div>
@@ -717,7 +717,7 @@ async function loadLedger(p=0) {
   <div class="filters">
     <select onchange="ledgerAsset=this.value;loadLedger(0)">
       <option value="">All Assets</option>
-      \${['BTC','LTC','ETH','USDT_ERC20','USDC_ERC20','USDC_SPL'].map(a=>\`<option \${ledgerAsset===a?'selected':''} value="\${a}">\${a}</option>\`).join('')}
+      \${['BTC','LTC','ETH','SOL','BNB','USDT_BEP20'].map(a=>\`<option \${ledgerAsset===a?'selected':''} value="\${a}">\${a}</option>\`).join('')}
     </select>
     <input placeholder="Exchanger ID filter" value="\${ledgerExchId}"
       onchange="ledgerExchId=this.value;loadLedger(0)">

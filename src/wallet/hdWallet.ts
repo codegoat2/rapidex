@@ -11,9 +11,12 @@
  *   BTC  testnet: coin_type = 1
  *   LTC  mainnet: coin_type = 2
  *   ETH  mainnet: coin_type = 60
- *   SOL  mainnet: coin_type = 501
+ *   SOL  mainnet: coin_type = 501  (ed25519 via ed25519-hd-key)
+ *   BNB  mainnet: coin_type = 714  (BSC uses same secp256k1 as ETH)
  *
  * Each exchanger gets a unique account index stored in the DB.
+ *
+ * Supported tradeable assets: BTC, LTC, ETH, SOL, USDT_BEP20 (+ BNB internally for BEP20 gas)
  */
 
 import * as bip39 from 'bip39';
@@ -152,9 +155,9 @@ export function deriveLtcAddress(accountIndex: number): DerivedAddress {
 }
 
 /**
- * Derives an ETH address (also used for ERC-20 tokens: USDT, USDC).
+ * Derives an ETH address (EVM-compatible, secp256k1, coin_type=60).
  */
-export function deriveEthAddress(accountIndex: number, asset: 'ETH' | 'USDT_ERC20' | 'USDC_ERC20' = 'ETH'): DerivedAddress {
+export function deriveEthAddress(accountIndex: number): DerivedAddress {
   const path = `m/44'/60'/${accountIndex}'/0/0`;
 
   const root = getRoot();
@@ -167,15 +170,36 @@ export function deriveEthAddress(accountIndex: number, asset: 'ETH' | 'USDT_ERC2
     derivationPath: path,
     publicKey: Buffer.from(child.publicKey).toString('hex'),
     chain: 'ethereum',
+    asset: 'ETH',
+  };
+}
+
+/**
+ * Derives a BNB / BSC address (EVM-compatible, secp256k1, coin_type=714).
+ * The same address is used for native BNB and BEP-20 tokens (e.g. USDT_BEP20).
+ */
+export function deriveBnbAddress(accountIndex: number, asset: 'BNB' | 'USDT_BEP20' = 'BNB'): DerivedAddress {
+  // BIP44 coin type 714 for BNB Smart Chain
+  const path = `m/44'/714'/${accountIndex}'/0/0`;
+
+  const root = getRoot();
+  const child = root.derivePath(path);
+
+  const wallet = new ethers.Wallet(Buffer.from(child.privateKey!).toString('hex'));
+
+  return {
+    address: wallet.address, // checksummed EIP-55 (same format as ETH)
+    derivationPath: path,
+    publicKey: Buffer.from(child.publicKey).toString('hex'),
+    chain: 'bsc',
     asset,
   };
 }
 
 /**
- * Derives a Solana address (also used for SPL tokens: USDC).
- * Solana uses ed25519 — derived via ed25519-hd-key.
+ * Derives a Solana address (ed25519, coin_type=501).
  */
-export function deriveSolAddress(accountIndex: number, asset: 'USDC_SPL' = 'USDC_SPL'): DerivedAddress {
+export function deriveSolAddress(accountIndex: number): DerivedAddress {
   const path = `m/44'/501'/${accountIndex}'/0'`;
   const seed = getMasterSeed();
 
@@ -187,22 +211,23 @@ export function deriveSolAddress(accountIndex: number, asset: 'USDC_SPL' = 'USDC
     derivationPath: path,
     publicKey: Buffer.from(keypair.publicKey.toBytes()).toString('hex'),
     chain: 'solana',
-    asset,
+    asset: 'SOL',
   };
 }
 
 /**
  * Derives all deposit addresses for a given exchanger account index.
- * Returns one address per supported asset.
+ * One address per tradeable asset: BTC, LTC, ETH, SOL, USDT_BEP20.
+ * BNB address is also provisioned (same path) since it's needed for BEP-20 gas.
  */
 export function deriveAllAddresses(accountIndex: number): DerivedAddress[] {
   return [
     deriveBtcAddress(accountIndex),
     deriveLtcAddress(accountIndex),
-    deriveEthAddress(accountIndex, 'ETH'),
-    deriveEthAddress(accountIndex, 'USDT_ERC20'),
-    deriveEthAddress(accountIndex, 'USDC_ERC20'),
-    deriveSolAddress(accountIndex, 'USDC_SPL'),
+    deriveEthAddress(accountIndex),
+    deriveSolAddress(accountIndex),
+    deriveBnbAddress(accountIndex, 'BNB'),       // native BNB (gas wallet)
+    deriveBnbAddress(accountIndex, 'USDT_BEP20'), // same address, different asset label
   ];
 }
 

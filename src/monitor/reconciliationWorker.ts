@@ -21,7 +21,7 @@ import { db } from '../db/client';
 import { logger } from '../utils/logger';
 import { config } from '../config/env';
 import { processDeposit } from './depositProcessor';
-import { rpcUrl, blockbookUrl, blockbookHeaders, ERC20_CONTRACTS } from '../config/nownodes';
+import { rpcUrl, blockbookUrl, blockbookHeaders } from '../config/nownodes';
 import { Connection, PublicKey } from '@solana/web3.js';
 import { ethers } from 'ethers';
 import type { Asset } from '../types';
@@ -153,14 +153,8 @@ async function fetchAlchemyTxIds(address: string, asset: Asset): Promise<string[
         .map((log: any) => log.transactionHash)
         .filter((hash: string) => hash);
     }
-    const topic = ethers.id('Transfer(address,address,uint256)').slice(2);
-    const logs = await provider.send('eth_getLogs', [{
-      fromBlock: '0x0',
-      toBlock: 'latest',
-      address: ERC20_CONTRACTS[asset === 'USDT_ERC20' ? 'USDT_ERC20' : 'USDC_ERC20']?.mainnet,
-      topics: [topic, null, ethers.zeroPadValue(address, 32).slice(2)],
-    }]);
-    return (logs as any[]).map((log: any) => log.transactionHash).filter((hash: string) => hash);
+    // No ERC-20 tokens in current tradeable asset set
+    return [];
   } catch {
     return [];
   }
@@ -204,25 +198,7 @@ async function fetchTxAmount(
         const value = Number(tx.value) / 1e18;
         return value.toFixed(18);
       }
-      const netKey = config.NETWORK === 'testnet' ? 'testnet' : 'mainnet';
-      const contractAddress = ERC20_CONTRACTS[asset as 'USDT_ERC20' | 'USDC_ERC20']?.[netKey];
-      if (!contractAddress) return null;
-      const contract = new ethers.Contract(contractAddress, ['function decimals() view returns (uint8)'], provider);
-      const decimals = await contract.decimals() as bigint;
-      const transferInterface = new ethers.Interface([
-        'event Transfer(address indexed from, address indexed to, uint256 value)',
-      ]);
-      for (const log of receipt.logs) {
-        if (log.address.toLowerCase() !== contractAddress.toLowerCase()) continue;
-        try {
-          const parsed = transferInterface.parseLog({ topics: [...log.topics], data: log.data });
-          if (parsed?.name === 'Transfer' && String(parsed.args.to).toLowerCase() === address.toLowerCase()) {
-            return ethers.formatUnits(parsed.args.value as bigint, decimals);
-          }
-        } catch {
-          // Ignore unrelated logs in the same transaction.
-        }
-      }
+      // No ERC-20 tokens in current tradeable asset set
       return null;
     }
     if (chain === 'solana') {

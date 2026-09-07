@@ -155,14 +155,11 @@ function parseAlchemy(payload: Record<string, unknown>): ParsedDeposit[] {
     const asset = String(act['asset'] ?? '');
     const txHash = String(act['hash'] ?? '');
 
-    let mappedAsset: 'ETH' | 'USDT_ERC20' | 'USDC_ERC20';
+    let mappedAsset: 'ETH';
     if (asset === 'ETH') {
       mappedAsset = 'ETH';
-    } else if (asset === 'USDT') {
-      mappedAsset = 'USDT_ERC20';
-    } else if (asset === 'USDC') {
-      mappedAsset = 'USDC_ERC20';
     } else {
+      // USDT ERC-20, USDC ERC-20, etc. are not in our supported asset set — skip
       continue;
     }
 
@@ -189,30 +186,22 @@ function parseHelius(payload: Record<string, unknown>): ParsedDeposit[] {
   const deposits: ParsedDeposit[] = [];
 
   for (const transfer of tokenTransfers) {
-    const mint = String(transfer['mint'] ?? '');
-    const toAddress = String(transfer['toUserAccount'] ?? '');
-    const tokenAmount = String(transfer['tokenAmount'] ?? '0');
-
-    // USDC SPL mint address (mainnet)
-    const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
-    if (mint !== USDC_MINT) continue;
-
-    deposits.push({
-      txId: signature,
-      address: toAddress,
-      amount: tokenAmount,
-      asset: 'USDC_SPL',
-      confirmations: 1,
-    });
+    // Token transfers not in our supported asset set — skip (we don't trade SPL tokens)
+    void transfer;
   }
 
-  // Native SOL transfers (if SOL is ever supported as a trade asset)
+  // Native SOL transfers
   for (const transfer of nativeTransfers) {
     const toAddress = String(transfer['toUserAccount'] ?? '');
     const amount = Number(transfer['amount'] ?? 0) / 1e9; // lamports to SOL
-    if (amount > 0) {
-      // SOL not in current asset list but here for extensibility
-      void toAddress;
+    if (amount > 0 && toAddress) {
+      deposits.push({
+        txId: signature,
+        address: toAddress,
+        amount: amount.toFixed(18),
+        asset: 'SOL',
+        confirmations: 1,
+      });
     }
   }
 

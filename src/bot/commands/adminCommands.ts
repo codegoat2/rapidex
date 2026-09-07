@@ -37,7 +37,7 @@ import { db } from '../../db/client';
 import { logger } from '../../utils/logger';
 import type { Asset, TradeStatus } from '../../types';
 
-const ASSETS: Asset[] = ['BTC', 'LTC', 'ETH', 'USDT_ERC20', 'USDC_ERC20', 'USDC_SPL'];
+const ASSETS: Asset[] = ['BTC', 'LTC', 'ETH', 'SOL', 'BNB', 'USDT_BEP20'];
 
 // ---------------------------------------------------------------------------
 // Command definitions
@@ -377,7 +377,8 @@ export async function handleHotWalletBalance(interaction: ChatInputCommandIntera
     BTC: config.MIN_HOT_WALLET_BTC,
     LTC: config.MIN_HOT_WALLET_LTC,
     ETH: config.MIN_HOT_WALLET_ETH,
-    USDC_SPL: config.MIN_HOT_WALLET_SOL,
+    SOL: config.MIN_HOT_WALLET_SOL,
+    BNB: config.MIN_HOT_WALLET_BNB,
   };
 
   const lines = rows.map(r => {
