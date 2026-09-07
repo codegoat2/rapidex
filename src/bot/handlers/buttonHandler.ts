@@ -142,9 +142,9 @@ async function handleStartExchange(interaction: ButtonInteraction): Promise<void
     .setMinValues(1)
     .setMaxValues(1)
     .addOptions(
-      new StringSelectMenuOptionBuilder().setLabel('Bitcoin').setDescription('BTC').setValue('BTC').setEmoji('₿'),
-      new StringSelectMenuOptionBuilder().setLabel('Litecoin').setDescription('LTC').setValue('LTC').setEmoji('Ł'),
-      new StringSelectMenuOptionBuilder().setLabel('Ethereum').setDescription('ETH').setValue('ETH').setEmoji('◆'),
+      new StringSelectMenuOptionBuilder().setLabel('Bitcoin').setDescription('BTC').setValue('BTC').setEmoji('🪙'),
+      new StringSelectMenuOptionBuilder().setLabel('Litecoin').setDescription('LTC').setValue('LTC').setEmoji('🪙'),
+      new StringSelectMenuOptionBuilder().setLabel('Ethereum').setDescription('ETH').setValue('ETH').setEmoji('💎'),
       new StringSelectMenuOptionBuilder().setLabel('Tether USD (Ethereum)').setDescription('USDT ERC-20').setValue('USDT_ERC20').setEmoji('💵'),
       new StringSelectMenuOptionBuilder().setLabel('USD Coin (Ethereum)').setDescription('USDC ERC-20').setValue('USDC_ERC20').setEmoji('💵'),
       new StringSelectMenuOptionBuilder().setLabel('USD Coin (Solana)').setDescription('USDC SPL').setValue('USDC_SPL').setEmoji('💵'),
