@@ -1,6 +1,6 @@
 /**
  * Renders the full single-page admin dashboard HTML.
- * All JS is inline — no build step, no CDN dependency.
+ * The dashboard is rendered as a single page so it can be deployed with the bot.
  */
 
 export function renderShell(): string {
@@ -10,16 +10,17 @@ export function renderShell(): string {
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>RapidEx Admin Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <style>
 /* ── Reset & Base ──────────────────────────────────────────── */
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#0f1117;--surface:#1a1d2e;--surface2:#222640;--border:#2d3154;
-  --accent:#6366f1;--accent2:#8b5cf6;--success:#22c55e;--warning:#f59e0b;
-  --danger:#ef4444;--info:#3b82f6;--text:#e2e8f0;--muted:#64748b;--subtle:#94a3b8;
-  --radius:10px;--sidebar:240px
+  --bg:#07111b;--surface:#0d1b29;--surface2:#13283a;--surface3:#193348;--border:#244258;
+  --accent:#38bdf8;--accent2:#14b8a6;--success:#34d399;--warning:#fbbf24;
+  --danger:#fb7185;--info:#60a5fa;--text:#e6f1f5;--muted:#7891a3;--subtle:#b3c8d2;
+  --radius:8px;--sidebar:248px
 }
-body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;
+body{background:radial-gradient(circle at 78% -10%,rgba(20,184,166,.12),transparent 34%),var(--bg);color:var(--text);font-family:'Trebuchet MS',system-ui,sans-serif;
      font-size:14px;display:flex;min-height:100vh;overflow-x:hidden}
 a{color:var(--accent);text-decoration:none}
 button{cursor:pointer;font-family:inherit}
@@ -30,13 +31,12 @@ input,select,textarea{font-family:inherit;font-size:14px}
 
 /* ── Sidebar ───────────────────────────────────────────────── */
 #sidebar{
-  width:var(--sidebar);min-height:100vh;background:var(--surface);
+  width:var(--sidebar);min-height:100vh;background:rgba(13,27,41,.96);
   border-right:1px solid var(--border);display:flex;flex-direction:column;
   position:fixed;left:0;top:0;z-index:100
 }
-.sidebar-logo{padding:24px 20px 16px;border-bottom:1px solid var(--border)}
-.sidebar-logo h2{font-size:20px;font-weight:700;
-  background:linear-gradient(135deg,var(--accent),var(--accent2));
+.sidebar-logo{padding:22px 20px 18px;border-bottom:1px solid var(--border)}
+.sidebar-logo h2{font-size:20px;font-weight:700;color:var(--accent);
   -webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .sidebar-logo span{font-size:11px;color:var(--muted);display:block;margin-top:2px}
 nav{flex:1;padding:12px 10px;overflow-y:auto}
@@ -46,7 +46,7 @@ nav{flex:1;padding:12px 10px;overflow-y:auto}
   border-radius:var(--radius);color:var(--subtle);margin-bottom:2px;
   transition:.15s;cursor:pointer;border:none;background:none;width:100%;text-align:left}
 .nav-item:hover{background:var(--surface2);color:var(--text)}
-.nav-item.active{background:rgba(99,102,241,.15);color:var(--accent);font-weight:600}
+.nav-item.active{background:linear-gradient(90deg,rgba(56,189,248,.16),rgba(20,184,166,.06));color:var(--accent);font-weight:600;border-left:2px solid var(--accent)}
 .nav-item .icon{font-size:16px;width:20px;text-align:center;flex-shrink:0}
 .sidebar-footer{padding:16px 20px;border-top:1px solid var(--border)}
 .sidebar-footer a{color:var(--muted);font-size:12px;display:flex;align-items:center;gap:6px}
@@ -54,17 +54,33 @@ nav{flex:1;padding:12px 10px;overflow-y:auto}
 
 /* ── Main ──────────────────────────────────────────────────── */
 #main{margin-left:var(--sidebar);flex:1;display:flex;flex-direction:column;min-width:0}
-#topbar{height:58px;background:var(--surface);border-bottom:1px solid var(--border);
-  display:flex;align-items:center;padding:0 28px;gap:12px;position:sticky;top:0;z-index:50}
-#topbar h1{font-size:18px;font-weight:600;flex:1}
-#page{padding:28px;flex:1;overflow-y:auto}
+#topbar{height:70px;background:rgba(13,27,41,.92);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;padding:0 30px;gap:16px;position:sticky;top:0;z-index:50;backdrop-filter:blur(12px)}
+#topbar h1{font-size:19px;font-weight:700;flex:1;letter-spacing:.02em}
+#page{padding:30px;flex:1;overflow-y:auto;max-width:1600px;width:100%}
+.topbar-search{width:min(360px,32vw);padding:10px 13px;background:var(--bg);border:1px solid var(--border);border-radius:7px;color:var(--text);outline:none}
+.topbar-search:focus{border-color:var(--accent)}
+.status-dot{width:8px;height:8px;border-radius:50%;background:var(--success);box-shadow:0 0 0 4px rgba(52,211,153,.12)}
+.eyebrow{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:700}
+.overview-hero{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:28px;padding:22px 24px;background:linear-gradient(120deg,rgba(56,189,248,.12),rgba(20,184,166,.04));border:1px solid var(--border);border-radius:var(--radius)}
+.overview-hero h2{font-size:28px;margin-top:6px}
+.overview-hero p{color:var(--subtle);margin-top:6px}
+.quick-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+body:before{content:'';position:fixed;inset:-30%;z-index:-1;pointer-events:none;background:conic-gradient(from 90deg at 50% 50%,rgba(56,189,248,.06),rgba(20,184,166,.1),transparent 30%,rgba(56,189,248,.05));animation:ambient 18s linear infinite}
+@keyframes ambient{to{transform:rotate(360deg)}}
+body.light{--bg:#edf5f4;--surface:#fff;--surface2:#e3efee;--surface3:#d5e7e6;--border:#c3d9d8;--text:#12313a;--muted:#5c7a82;--subtle:#36565e}body.light #sidebar,body.light #topbar{background:rgba(255,255,255,.88)}body.light .card,body.light .stat-card{background:rgba(255,255,255,.8)}
+.icon-btn{width:34px;height:34px;padding:0;justify-content:center}.pulse{animation:pulse 1.8s infinite}@keyframes pulse{50%{opacity:.45}}
+.chart-card{min-height:270px}.chart-wrap{height:190px;position:relative}.chart-wrap canvas{width:100%;height:100%}
+.heatmap{display:grid;grid-template-columns:repeat(24,1fr);gap:3px}.heat-cell{aspect-ratio:1;border-radius:2px;background:var(--surface2)}.heat-cell[data-level="1"]{background:rgba(56,189,248,.25)}.heat-cell[data-level="2"]{background:rgba(20,184,166,.45)}.heat-cell[data-level="3"]{background:rgba(52,211,153,.75)}
+.command-palette{max-width:620px}.command-list{display:grid;gap:4px}.command-list button{padding:12px;text-align:left;background:transparent;color:var(--text);border:1px solid transparent;border-radius:6px}.command-list button:hover{background:var(--surface2);border-color:var(--border)}.shortcut{float:right;color:var(--muted);font-size:11px}
+.notification-panel{position:fixed;right:24px;top:76px;width:330px;z-index:150;display:none}.notification-panel.open{display:block}.notification-item{padding:12px;border-bottom:1px solid var(--border);font-size:12px}.notification-item:last-child{border-bottom:0}
 
 /* ── Cards & Grids ─────────────────────────────────────────── */
-.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px}
+.card{background:rgba(13,27,41,.9);border:1px solid var(--border);border-radius:var(--radius);padding:20px;box-shadow:0 12px 28px rgba(0,0,0,.12)}
 .card-title{font-size:13px;color:var(--muted);font-weight:600;text-transform:uppercase;
   letter-spacing:.05em;margin-bottom:16px;display:flex;align-items:center;gap:8px}
 .stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;margin-bottom:24px}
-.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
+.stat-card{background:linear-gradient(145deg,rgba(19,40,58,.98),rgba(13,27,41,.98));border:1px solid var(--border);border-radius:var(--radius);
   padding:20px;position:relative;overflow:hidden}
 .stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--accent)}
 .stat-card.green::before{background:var(--success)}
@@ -74,6 +90,12 @@ nav{flex:1;padding:12px 10px;overflow-y:auto}
 .stat-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-weight:600}
 .stat-value{font-size:32px;font-weight:700;margin:8px 0 4px}
 .stat-sub{font-size:12px;color:var(--muted)}
+.metric-grid{display:grid;grid-template-columns:1.3fr 1fr;gap:16px;margin-bottom:24px}
+.health-strip{display:flex;align-items:center;gap:10px;color:var(--subtle);font-size:12px}
+.health-strip strong{color:var(--success)}
+.doc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}
+.doc-card{padding:18px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius)}
+.doc-card h3{font-size:15px;color:var(--accent);margin-bottom:8px}.doc-card p,.doc-card li{color:var(--subtle);font-size:12px;line-height:1.6}.doc-card ul{padding-left:17px}
 
 /* ── Tables ────────────────────────────────────────────────── */
 .table-wrap{overflow-x:auto;border-radius:var(--radius)}
@@ -170,6 +192,7 @@ hr{border:none;border-top:1px solid var(--border);margin:20px 0}
   background:var(--bg);border:1px solid var(--border);border-radius:7px;
   color:var(--text);outline:none}
 .setting-input input:focus{border-color:var(--accent)}
+@media(max-width:850px){:root{--sidebar:0px}#sidebar{width:100%;height:auto;min-height:0;position:relative;border-right:0;border-bottom:1px solid var(--border)}body{display:block}#sidebar nav{display:flex;overflow-x:auto;padding:8px}.nav-section{display:none}.nav-item{min-width:max-content}.sidebar-logo{padding:14px 18px}.sidebar-footer{display:none}#main{margin-left:0}#topbar{padding:0 16px}.topbar-search{display:none}#page{padding:18px}.metric-grid{grid-template-columns:1fr}.overview-hero{align-items:flex-start;flex-direction:column}.quick-actions{justify-content:flex-start}}
 </style>
 </head>
 <body>
@@ -178,7 +201,7 @@ hr{border:none;border-top:1px solid var(--border);margin:20px 0}
 <div id="sidebar">
   <div class="sidebar-logo">
     <h2>⚡ RapidEx</h2>
-    <span>Admin Dashboard</span>
+    <span>Operations console · v1.0</span>
   </div>
   <nav id="nav">
     <div class="nav-section">Main</div>
@@ -193,11 +216,13 @@ hr{border:none;border-top:1px solid var(--border);margin:20px 0}
 
     <div class="nav-section">Monitoring</div>
     <button class="nav-item" data-page="webhooks"><span class="icon">🔗</span>Webhook Events</button>
+    <button class="nav-item" data-page="withdrawals"><span class="icon">↗</span>Withdrawals</button>
     <button class="nav-item" data-page="audit"><span class="icon">📜</span>Audit Log</button>
     <button class="nav-item" data-page="addresses"><span class="icon">📬</span>Deposit Addresses</button>
 
     <div class="nav-section">Config</div>
     <button class="nav-item" data-page="settings"><span class="icon">⚙️</span>Settings</button>
+    <button class="nav-item" data-page="docs"><span class="icon">▤</span>Bot Docs</button>
   </nav>
   <div class="sidebar-footer"><a href="/dashboard/logout">🚪 Sign Out</a></div>
 </div>
@@ -206,6 +231,10 @@ hr{border:none;border-top:1px solid var(--border);margin:20px 0}
 <div id="main">
   <div id="topbar">
     <h1 id="topbar-title">Overview</h1>
+    <input class="topbar-search" id="global-search" placeholder="Search trades, users, ledger..." onkeydown="if(event.key==='Enter') runGlobalSearch(this.value)">
+    <button class="btn btn-ghost icon-btn" title="Notifications" onclick="toggleNotifications()">♢<span id="notification-count"></span></button>
+    <button class="btn btn-ghost icon-btn" title="Toggle theme" onclick="toggleTheme()">◐</button>
+    <div class="health-strip"><span id="health-dot" class="status-dot pulse"></span><strong id="health-status">Checking systems</strong></div>
     <div id="topbar-actions"></div>
   </div>
   <div id="page"></div>
@@ -213,6 +242,7 @@ hr{border:none;border-top:1px solid var(--border);margin:20px 0}
 
 <!-- Toast container -->
 <div id="toast-container"></div>
+<div id="notification-panel" class="card notification-panel"></div>
 
 <!-- Modals -->
 <div class="modal-overlay" id="modal-overlay">
@@ -286,6 +316,41 @@ function pager(current, total, limit, cb) {
   return html+'</div>';
 }
 
+let activeChart;
+function toggleTheme() {
+  document.body.classList.toggle('light');
+  localStorage.setItem('rapidex-theme',document.body.classList.contains('light')?'light':'dark');
+}
+if(localStorage.getItem('rapidex-theme')==='light') document.body.classList.add('light');
+
+function toggleNotifications() { $('notification-panel').classList.toggle('open'); }
+async function refreshHealth() {
+  try { const d=await api('/health'); $('health-status').textContent='DB '+d.db.latencyMs+'ms'; $('health-dot').style.background='var(--success)'; }
+  catch { $('health-status').textContent='Health check failed'; $('health-dot').style.background='var(--danger)'; }
+}
+async function loadNotifications() {
+  try {
+    const [health, webhooks] = await Promise.all([api('/health'),api('/webhooks?limit=5')]);
+    const failed = webhooks.events.filter(e=>e.error);
+    $('notification-count').textContent = failed.length ? failed.length : '';
+    $('notification-panel').innerHTML = '<div class="card-title">Notifications</div>'+
+      '<div class="notification-item">Database latency: <strong>'+health.db.latencyMs+'ms</strong></div>'+
+      (failed.length ? failed.map(e=>'<div class="notification-item" style="color:var(--danger)">Webhook error: '+esc(e.provider)+' / '+esc(e.event_id)+'</div>').join('') : '<div class="notification-item">No active alerts</div>');
+  } catch { $('notification-panel').innerHTML='<div class="notification-item" style="color:var(--danger)">Health check unavailable</div>'; }
+}
+function openCommandPalette() {
+  modal('<div class="command-palette"><h3>Command palette <span class="shortcut">ESC to close</span></h3><input id="palette-filter" class="topbar-search" style="width:100%;margin-bottom:12px" placeholder="Jump to a page or action..." autofocus><div class="command-list">'+
+    Object.keys(pages).map(name=>'<button onclick="navigateTo(\''+name+'\')">Open '+name.replace(/-/g,' ')+'<span class="shortcut">↵</span></button>').join('')+
+    '<button onclick="window.location.href=\'/dashboard/api/export/trades\'">Export trades CSV<span class="shortcut">CSV</span></button><button onclick="window.location.href=\'/dashboard/api/export/ledger\'">Export ledger CSV<span class="shortcut">CSV</span></button></div></div>');
+}
+function navigateTo(name) { closeModal(); document.querySelectorAll('.nav-item[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===name)); pages[name]?.(); }
+document.addEventListener('keydown',e=>{
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openCommandPalette();}
+  if(e.key==='Escape') closeModal();
+  if(e.key==='r'&&!e.ctrlKey&&!e.metaKey&&document.activeElement.tagName!=='INPUT'){loadCurrentPage();}
+});
+function loadCurrentPage(){const current=document.querySelector('.nav-item.active')?.dataset.page; if(current&&pages[current]) pages[current]().catch(()=>{});}
+
 // ─────────────────────────────────────────────────────────────
 // OVERVIEW
 // ─────────────────────────────────────────────────────────────
@@ -308,6 +373,10 @@ async function loadOverview() {
   });
 
   page.innerHTML=\`
+  <div class="overview-hero">
+    <div><div class="eyebrow">Operations center</div><h2>Good morning, operator.</h2><p>Monitor settlement flow, liquidity, and exceptions from one place.</p></div>
+    <div class="quick-actions"><button class="btn btn-primary" onclick="openVerifyModal()">+ Verify exchanger</button><button class="btn btn-ghost" onclick="loadDocs()">Read bot docs</button></div>
+  </div>
   <div class="stats-grid">
     <div class="stat-card blue"><div class="stat-label">Total Trades</div><div class="stat-value">\${total}</div><div class="stat-sub">all time</div></div>
     <div class="stat-card yellow"><div class="stat-label">Active Trades</div><div class="stat-value">\${active}</div><div class="stat-sub">in progress</div></div>
@@ -317,7 +386,7 @@ async function loadOverview() {
     <div class="stat-card"><div class="stat-label">Webhooks</div><div class="stat-value">\${d.webhookCount}</div><div class="stat-sub">processed events</div></div>
   </div>
 
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
+  <div class="metric-grid">
     <div class="card">
       <div class="card-title">📊 Trade Status Breakdown</div>
       \${Object.entries(counts).map(([s,c])=>
@@ -342,6 +411,11 @@ async function loadOverview() {
     </div>
   </div>
 
+  <div class="metric-grid">
+    <div class="card chart-card"><div class="card-title">↗ Trade volume · 30 days</div><div class="chart-wrap"><canvas id="trade-chart"></canvas></div></div>
+    <div class="card"><div class="card-title">◌ Activity heatmap · 7 × 24</div><div id="activity-heatmap" class="heatmap"></div><div style="font-size:11px;color:var(--muted);margin-top:10px">Quiet <span style="color:var(--accent)">■ ■ ■</span> Busy</div></div>
+  </div>
+
   <div class="card">
     <div class="card-title">⏱ Recent Trades</div>
     <div class="table-wrap">
@@ -361,6 +435,36 @@ async function loadOverview() {
     </div>
   </div>
   \`;
+  loadOverviewCharts();
+}
+
+async function loadOverviewCharts() {
+  try {
+    const rows = await api('/charts/trades?days=30');
+    const days = [...new Set(rows.map(r=>r.day))];
+    const values = days.map(day=>rows.filter(r=>r.day===day).reduce((sum,r)=>sum+parseInt(r.count),0));
+    const canvas = $('trade-chart');
+    if(window.Chart && canvas) {
+      if(activeChart) activeChart.destroy();
+      activeChart = new Chart(canvas,{type:'line',data:{labels:days.map(d=>d.slice(5)),datasets:[{data:values,borderColor:'#38bdf8',backgroundColor:'rgba(56,189,248,.15)',fill:true,tension:.35,pointRadius:2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:'rgba(120,145,163,.12)'},ticks:{color:'#7891a3',maxTicksLimit:7}},y:{beginAtZero:true,grid:{color:'rgba(120,145,163,.12)'},ticks:{color:'#7891a3',precision:0}}}}});
+    }
+    const heat = $('activity-heatmap');
+    if(heat) { const peak=Math.max(1,...(values.length?values:[1])); heat.innerHTML=Array.from({length:168},(_,i)=>'<span class="heat-cell" data-level="'+Math.min(3,Math.floor((values[i%Math.max(values.length,1)]||0)/(peak/3)))+'" title="Activity slot '+(i+1)+'"></span>').join(''); }
+  } catch { toast('Analytics data unavailable','error'); }
+}
+
+async function runGlobalSearch(query) {
+  if(!query || query.trim().length < 2) return toast('Enter at least 2 characters','info');
+  try {
+    const d = await api('/search?q='+encodeURIComponent(query.trim()));
+    const result = [...d.trades.map(x=>['Trade',x.id,x.status,()=>loadTradeDetail(x.id)]),
+      ...d.exchangers.map(x=>['Exchanger',x.discord_username,x.is_banned?'BANNED':x.is_active?'ACTIVE':'INACTIVE',()=>loadExchangerDetail(x.id)]),
+      ...d.ledger.map(x=>['Ledger',x.id,x.type,()=>{closeModal();loadLedger()}])];
+    modal('<h3>⌕ Search results</h3>'+(result.length?result.map(r=>
+      '<button class="nav-item" style="width:100%;margin-bottom:6px" onclick="window.__searchPick('+result.indexOf(r)+')"><span class="eyebrow" style="width:90px">'+esc(r[0])+'</span><strong>'+esc(r[1])+'</strong><span style="margin-left:auto;color:var(--muted)">'+esc(r[2])+'</span></button>'
+    ).join(''):'<div class="empty">No matching records</div>')+'<div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal()">Close</button></div>');
+    window.__searchPick = i => { closeModal(); result[i][3](); };
+  } catch(e) { toast(e.message,'error'); }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -369,7 +473,7 @@ async function loadOverview() {
 let tradeFilter='', tradePage=0;
 async function loadTrades(p=0) {
   tradePage=p; topbar.textContent='Trades';
-  actions.innerHTML='';
+  actions.innerHTML='<button class="btn btn-ghost btn-sm" onclick="exportCsv(\'trades\')">↓ CSV</button><button class="btn btn-danger btn-sm" onclick="bulkCancelTrades()">Cancel selected</button>';
   loading();
   const status = tradeFilter||'';
   const d = await api(\`/trades?status=\${status}&page=\${p}&limit=50\`);
@@ -388,9 +492,10 @@ async function loadTrades(p=0) {
   <div class="card">
     <div class="table-wrap">
       <table>
-        <thead><tr><th>ID</th><th>User</th><th>Exchanger</th><th>Asset</th><th>Amount</th><th>Fiat</th><th>Direction</th><th>Status</th><th>Created</th><th></th></tr></thead>
+        <thead><tr><th><input type="checkbox" onchange="toggleSelection('trade',this.checked)"></th><th>ID</th><th>User</th><th>Exchanger</th><th>Asset</th><th>Amount</th><th>Fiat</th><th>Direction</th><th>Status</th><th>Created</th><th></th></tr></thead>
         <tbody>
         \${d.trades.map(t=>\`<tr>
+          <td><input type="checkbox" class="trade-select" value="\${esc(t.id)}"></td>
           <td><span class="mono">\${esc(t.id.slice(0,8))}…</span></td>
           <td><span class="mono">\${esc(t.user_discord_id)}</span></td>
           <td><span class="mono">\${t.exchanger_id?esc(t.exchanger_id.slice(0,8))+'…':'—'}</span></td>
@@ -409,6 +514,16 @@ async function loadTrades(p=0) {
   </div>
   \`;
 }
+
+function toggleSelection(type, checked) { document.querySelectorAll('.'+type+'-select').forEach(el=>el.checked=checked); }
+function selectedIds(selector) { return [...document.querySelectorAll(selector+':checked')].map(el=>el.value); }
+async function bulkCancelTrades() {
+  const ids=selectedIds('.trade-select'); if(!ids.length) return toast('Select at least one trade','info');
+  if(!confirm('Force cancel '+ids.length+' selected trade(s)?')) return;
+  const results=await Promise.allSettled(ids.map(id=>api('/trades/'+id+'/force-cancel',{method:'POST',body:'{}'})));
+  toast(results.filter(r=>r.status==='fulfilled').length+' trade(s) cancelled','success'); loadTrades(tradePage);
+}
+function exportCsv(type) { window.location.href='/dashboard/api/export/'+type; }
 
 async function loadTradeDetail(id) {
   const d = await api('/trades/'+id);
@@ -444,17 +559,18 @@ async function loadTradeDetail(id) {
 // ─────────────────────────────────────────────────────────────
 async function loadExchangers() {
   topbar.textContent='Exchangers';
-  actions.innerHTML=\`<button class="btn btn-primary" onclick="openVerifyModal()">+ Verify Exchanger</button>\`;
+  actions.innerHTML=\`<button class="btn btn-primary" onclick="openVerifyModal()">+ Verify Exchanger</button><button class="btn btn-danger" onclick="bulkBanExchangers()">Ban selected</button>\`;
   loading();
   const exchangers = await api('/exchangers');
   page.innerHTML=\`
   <div class="card">
-    <div class="card-title">👤 Verified Exchangers</div>
+    <div class="card-title">👤 Verified Exchangers <input class="topbar-search" style="margin-left:auto;width:220px" placeholder="Filter username or ID" oninput="filterRows(this.value,'exchanger-row')"></div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Username</th><th>Discord ID</th><th>Status</th><th>Verified By</th><th>Verified At</th><th></th></tr></thead>
+        <thead><tr><th><input type="checkbox" onchange="toggleSelection('exchanger',this.checked)"></th><th>Username</th><th>Discord ID</th><th>Status</th><th>Verified By</th><th>Verified At</th><th></th></tr></thead>
         <tbody>
-        \${exchangers.map(e=>\`<tr>
+        \${exchangers.map(e=>\`<tr class="exchanger-row" data-search="\${esc(e.discord_username+' '+e.discord_id)}">
+          <td><input type="checkbox" class="exchanger-select" data-discord="\${esc(e.discord_id)}" value="\${esc(e.id)}"></td>
           <td><strong>\${esc(e.discord_username)}</strong></td>
           <td class="mono">\${esc(e.discord_id)}</td>
           <td>\${badge(e.is_banned?'BANNED':e.is_active?'ACTIVE':'INACTIVE')}</td>
@@ -470,6 +586,14 @@ async function loadExchangers() {
     </div>
   </div>
   \`;
+}
+
+function filterRows(value, className) { const q=value.toLowerCase(); document.querySelectorAll('.'+className).forEach(row=>row.style.display=row.dataset.search.toLowerCase().includes(q)?'':'none'); }
+async function bulkBanExchangers() {
+  const selected=[...document.querySelectorAll('.exchanger-select:checked')]; if(!selected.length) return toast('Select at least one exchanger','info');
+  const reason=prompt('Reason for bulk ban:'); if(!reason) return;
+  const results=await Promise.allSettled(selected.map(el=>api('/exchangers/ban',{method:'POST',body:JSON.stringify({targetDiscordId:el.dataset.discord,reason})})));
+  toast(results.filter(r=>r.status==='fulfilled').length+' exchanger(s) banned','success'); loadExchangers();
 }
 
 async function loadExchangerDetail(id) {
@@ -583,11 +707,11 @@ async function doLedger(id, type) {
 // ─────────────────────────────────────────────────────────────
 // LEDGER
 // ─────────────────────────────────────────────────────────────
-let ledgerPage=0, ledgerAsset='', ledgerExchId='';
+let ledgerPage=0, ledgerAsset='', ledgerExchId='', ledgerFrom='', ledgerTo='';
 async function loadLedger(p=0) {
-  ledgerPage=p; topbar.textContent='Ledger'; actions.innerHTML='';
+  ledgerPage=p; topbar.textContent='Ledger'; actions.innerHTML='<button class="btn btn-ghost btn-sm" onclick="exportCsv(\'ledger\')">↓ CSV</button>';
   loading();
-  const d = await api(\`/ledger?page=\${p}&limit=100&asset=\${ledgerAsset}&exchanger_id=\${ledgerExchId}\`);
+  const d = await api(\`/ledger?page=\${p}&limit=100&asset=\${ledgerAsset}&exchanger_id=\${ledgerExchId}&from=\${ledgerFrom}&to=\${ledgerTo}\`);
   page.innerHTML=\`
   <div class="section-header"><h2>Ledger Entries</h2></div>
   <div class="filters">
@@ -597,6 +721,8 @@ async function loadLedger(p=0) {
     </select>
     <input placeholder="Exchanger ID filter" value="\${ledgerExchId}"
       onchange="ledgerExchId=this.value;loadLedger(0)">
+    <input type="date" value="\${ledgerFrom}" onchange="ledgerFrom=this.value;loadLedger(0)">
+    <input type="date" value="\${ledgerTo}" onchange="ledgerTo=this.value;loadLedger(0)">
   </div>
   <div class="card">
     <div class="table-wrap">
@@ -708,6 +834,45 @@ async function loadWebhooks(p=0) {
     </div>
   </div>
   \`;
+}
+
+// ─────────────────────────────────────────────────────────────
+// WITHDRAWAL QUEUE
+// ─────────────────────────────────────────────────────────────
+async function loadWithdrawals() {
+  topbar.textContent='Withdrawals'; actions.innerHTML='<button class="btn btn-ghost" onclick="loadWithdrawals()">↻ Refresh</button>';
+  loading();
+  const rows = await api('/withdrawals');
+  page.innerHTML=\`
+  <div class="section-header"><div><div class="eyebrow">Settlement pipeline</div><h2>Withdrawal queue</h2></div><span style="color:var(--muted);font-size:12px">Automatic worker runs every 15 seconds</span></div>
+  <div class="card"><div class="table-wrap"><table><thead><tr><th>Created</th><th>Trade</th><th>User</th><th>Asset</th><th>Amount</th><th>Destination</th><th>Status</th><th>Attempts</th><th></th></tr></thead><tbody>
+  \${rows.map(w=>\`<tr><td>\${ts(w.created_at)}</td><td class="mono">\${esc(String(w.trade_id).slice(0,8))}…</td><td class="mono">\${esc(w.user_discord_id)}</td><td><strong>\${esc(w.asset)}</strong></td><td class="mono">\${num(w.amount)}</td><td class="mono truncate" style="max-width:210px">\${esc(w.destination_address)}</td><td>\${badge(w.status)}</td><td>\${esc(w.attempts??0)}</td><td>\${['FAILED','BROADCAST'].includes(w.status)?'<button class="btn btn-ghost btn-sm" data-withdrawal-id="'+esc(w.id)+'" onclick="retryWithdrawal(this.dataset.withdrawalId)">Retry</button>':''}</td></tr>\`).join('') || '<tr><td colspan="9">'+empty('No withdrawals in queue')+'</td></tr>'}
+  </tbody></table></div></div>\`;
+}
+
+async function retryWithdrawal(id) {
+  try { await api('/withdrawals/'+id+'/retry',{method:'POST',body:'{}'}); toast('Withdrawal queued for retry','success'); loadWithdrawals(); }
+  catch(e) { toast(e.message,'error'); }
+}
+
+// ─────────────────────────────────────────────────────────────
+// BOT DOCUMENTATION
+// ─────────────────────────────────────────────────────────────
+function loadDocs() {
+  topbar.textContent='Bot Docs'; actions.innerHTML='<button class="btn btn-ghost" onclick="window.print()">Print docs</button>';
+  page.innerHTML=\`
+  <div class="overview-hero"><div><div class="eyebrow">RapidEx reference</div><h2>Bot documentation</h2><p>A practical map of every shipped command, workflow, worker, and operator control.</p></div><span class="badge badge-active">LIVE BUILD</span></div>
+  <div class="doc-grid">
+    <article class="doc-card"><h3>Discord commands</h3><ul><li><strong>/help</strong> shows the getting-started guide.</li><li><strong>/profile</strong> displays the exchanger profile and balances.</li><li><strong>/my-trades</strong> lists recent trades.</li><li><strong>/deposit-addresses</strong> shows provisioned deposit addresses.</li><li><strong>/setup-panel</strong> deploys the persistent trade panel.</li><li><strong>/verify-exchanger</strong> verifies a member with admin permission.</li></ul></article>
+    <article class="doc-card"><h3>Admin commands</h3><ul><li><strong>/balance</strong>, <strong>/credit</strong>, and <strong>/debit</strong> manage exchanger funds.</li><li><strong>/trades</strong> lists active or filtered trades.</li><li><strong>/close-ticket</strong> closes a support ticket.</li><li><strong>/set-fee</strong> changes asset fee configuration.</li><li><strong>/audit-log</strong> reads administrative history.</li><li><strong>/hot-wallet</strong> reports wallet balances.</li><li><strong>/ban</strong> blocks an exchanger with a reason.</li></ul></article>
+    <article class="doc-card"><h3>Trade lifecycle</h3><p>The panel creates a trade, collects asset, fiat currency, payment method, and direction. An exchanger claims it, confirms fiat, and releases crypto. The engine records state transitions and can expire, cancel, dispute, or complete a trade. User wallet withdrawals enter the queue after confirmation.</p></article>
+    <article class="doc-card"><h3>Dashboard controls</h3><p><strong>Overview</strong> gives live counts and ledger totals. <strong>Trades</strong> exposes state history plus force release/cancel actions. <strong>Exchangers</strong> handles verification, bans, reactivation, balances, and addresses. <strong>Ledger</strong> supports audited credit/debit adjustments.</p></article>
+    <article class="doc-card"><h3>Money movement</h3><p>Fee Config manages percentage and minimum fees per asset. Hot Wallets shows cached on-chain balances. Deposit Addresses lists HD-derived addresses. Withdrawals shows attempts, destinations, errors, and retry controls. Every manual balance change writes a ledger and audit entry.</p></article>
+    <article class="doc-card"><h3>Monitoring and data</h3><p>Webhook Events tracks NOWNodes callbacks and processing errors. Audit Log records actors, actions, entities, and metadata. Global search covers trades, exchangers, and ledger references. CSV exports are available for trades and ledger entries.</p></article>
+    <article class="doc-card"><h3>Workers</h3><ul><li>Expiry worker runs every minute.</li><li>Accounting worker reconciles accounting tasks.</li><li>Monitoring worker checks wallet health every 5 minutes.</li><li>Reconciliation worker runs every 10 minutes.</li><li>Withdrawal worker retries queued payouts every 15 seconds.</li></ul></article>
+    <article class="doc-card"><h3>Security model</h3><p>The dashboard uses a signed, HTTP-only session cookie with an 8-hour TTL and login rate limiting. Discord actions use role-based permissions. Sensitive wallet material is encrypted. Idempotency keys protect manual ledger adjustments and webhook processing. Audit logs preserve operator accountability.</p></article>
+    <article class="doc-card"><h3>Deployment and configuration</h3><p>Run migrations with <strong>npm run migrate</strong>, compile with <strong>npm run build</strong>, and start with <strong>npm start</strong>. Required environment values include Discord credentials, database URL, encryption key, wallet mnemonic, dashboard secret, webhook secret, and network. Runtime settings can be changed here without redeploying.</p></article>
+  </div>\`;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -872,9 +1037,11 @@ const pages = {
   fees:        loadFees,
   'hot-wallets': loadHotWallets,
   webhooks:    loadWebhooks,
+  withdrawals: loadWithdrawals,
   audit:       loadAudit,
   addresses:   loadAddresses,
   settings:    loadSettings,
+  docs:        loadDocs,
 };
 
 document.querySelectorAll('.nav-item[data-page]').forEach(btn=>{
@@ -888,6 +1055,7 @@ document.querySelectorAll('.nav-item[data-page]').forEach(btn=>{
 
 // Load default page
 loadOverview().catch(console.error);
+refreshHealth(); loadNotifications();
 
 // Auto-refresh overview every 30s
 setInterval(()=>{
@@ -895,6 +1063,7 @@ setInterval(()=>{
     loadOverview().catch(()=>{});
   }
 },30000);
+setInterval(()=>{ refreshHealth(); loadNotifications(); if(document.querySelector('.nav-item.active')?.dataset.page==='overview') loadOverviewCharts(); },10000);
 </script>
 </body>
 </html>`;

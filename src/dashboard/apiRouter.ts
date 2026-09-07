@@ -141,6 +141,8 @@ router.get('/ledger', async (req: Request, res: Response) => {
     const page   = Math.max(parseInt(String(req.query['page'] ?? '0')), 0);
     const asset  = req.query['asset'] as string | undefined;
     const exchId = req.query['exchanger_id'] as string | undefined;
+    const from   = req.query['from'] as string | undefined;
+    const to     = req.query['to'] as string | undefined;
 
     const rows = await db`
       SELECT le.*, e.discord_username
@@ -149,6 +151,8 @@ router.get('/ledger', async (req: Request, res: Response) => {
       WHERE TRUE
         ${asset  ? db`AND le.asset=${asset}` : db``}
         ${exchId ? db`AND le.exchanger_id=${exchId}` : db``}
+        ${from   ? db`AND le.created_at >= ${from}::date` : db``}
+        ${to     ? db`AND le.created_at < (${to}::date + INTERVAL '1 day')` : db``}
       ORDER BY le.created_at DESC
       LIMIT ${limit} OFFSET ${page * limit}
     `;
@@ -346,6 +350,157 @@ router.get('/stats', async (_req: Request, res: Response) => {
       exchangers:exchangers[0]?.count ?? '0',
       ledger:    ledger[0]?.count ?? '0',
       webhooks:  webhooks[0]?.count ?? '0',
+    });
+  } catch (e) { err(res, String(e), 500); }
+});
+
+// ── Chart data (trades over time, asset distribution) ────────────────────
+
+router.get('/charts/trades', async (req: Request, res: Response) => {
+  try {
+    const days = Math.min(parseInt(String(req.query['days'] ?? '30')), 365);
+    const rows = await db<{ day: string; status: string; count: string }[]>`
+      SELECT TO_CHAR(DATE_TRUNC('day', created_at), 'YYYY-MM-DD') AS day,
+             status, COUNT(*)::text AS count
+      FROM trades
+      WHERE created_at > NOW() - INTERVAL '${db(days + ' days')}'
+      GROUP BY 1, 2 ORDER BY 1
+    `;
+    ok(res, rows);
+  } catch (e) { err(res, String(e), 500); }
+});
+
+router.get('/charts/ledger', async (req: Request, res: Response) => {
+  try {
+    const days = Math.min(parseInt(String(req.query['days'] ?? '30')), 365);
+    const rows = await db<{ day: string; asset: string; type: string; total: string }[]>`
+      SELECT TO_CHAR(DATE_TRUNC('day', created_at), 'YYYY-MM-DD') AS day,
+             asset, type, SUM(amount)::text AS total
+      FROM ledger_entries
+      WHERE created_at > NOW() - INTERVAL '${db(days + ' days')}'
+      GROUP BY 1, 2, 3 ORDER BY 1
+    `;
+    ok(res, rows);
+  } catch (e) { err(res, String(e), 500); }
+});
+
+// ── CSV Export ────────────────────────────────────────────────────────────
+
+router.get('/export/trades', async (req: Request, res: Response) => {
+  try {
+    const status = req.query['status'] as string | undefined;
+    const rows = status
+      ? await db`SELECT * FROM trades WHERE status=${status} ORDER BY created_at DESC LIMIT 5000`
+      : await db`SELECT * FROM trades ORDER BY created_at DESC LIMIT 5000`;
+    const headers = ['id','user_discord_id','exchanger_id','asset','amount','fiat_currency','fiat_method','direction','status','created_at'];
+    const csv = [headers.join(',')].concat(rows.map((r: any) =>
+      headers.map(h => `"${String(r[h] ?? '').replace(/"/g,'""')}"`).join(',')
+    )).join('\n');
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename=trades-'+Date.now()+'.csv');
+    res.send(csv);
+  } catch (e) { err(res, String(e), 500); }
+});
+
+router.get('/export/ledger', async (_req: Request, res: Response) => {
+  try {
+    const rows = await db`SELECT * FROM ledger_entries ORDER BY created_at DESC LIMIT 10000`;
+    const headers = ['id','exchanger_id','type','asset','amount','balance_after','escrow_after','reference','created_at'];
+    const csv = [headers.join(',')].concat(rows.map((r: any) =>
+      headers.map(h => `"${String(r[h] ?? '').replace(/"/g,'""')}"`).join(',')
+    )).join('\n');
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename=ledger-'+Date.now()+'.csv');
+    res.send(csv);
+  } catch (e) { err(res, String(e), 500); }
+});
+
+// ── System health ─────────────────────────────────────────────────────────
+
+router.get('/health', async (_req: Request, res: Response) => {
+  try {
+    const start = Date.now();
+    await db`SELECT 1`;
+    const dbLatency = Date.now() - start;
+    ok(res, {
+      db: { healthy: true, latencyMs: dbLatency },
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+    });
+  } catch (e) { err(res, String(e), 500); }
+});
+
+// ── Search (global) ───────────────────────────────────────────────────────
+
+router.get('/search', async (req: Request, res: Response) => {
+  try {
+    const q = String(req.query['q'] ?? '').trim();
+    if (q.length < 2) return ok(res, { trades: [], exchangers: [], ledger: [] });
+    const like = '%'+q+'%';
+    const [trades, exchangers, ledger] = await Promise.all([
+      db`SELECT id, status, asset, amount, user_discord_id, created_at FROM trades
+         WHERE id::text ILIKE ${like} OR user_discord_id ILIKE ${like}
+         ORDER BY created_at DESC LIMIT 10`,
+      db`SELECT id, discord_id, discord_username, is_active, is_banned FROM exchangers
+         WHERE discord_id ILIKE ${like} OR discord_username ILIKE ${like}
+         LIMIT 10`,
+      db`SELECT id, exchanger_id, type, asset, amount, reference, created_at FROM ledger_entries
+         WHERE reference ILIKE ${like} OR idempotency_key ILIKE ${like}
+         ORDER BY created_at DESC LIMIT 10`,
+    ]);
+    ok(res, { trades, exchangers, ledger });
+  } catch (e) { err(res, String(e), 500); }
+});
+
+// ── Force release / cancel a trade (admin actions) ────────────────────────
+
+router.post('/trades/:id/force-release', async (req: Request, res: Response) => {
+  try {
+    const { actorDiscordId } = req.body as { actorDiscordId?: string };
+    const { forceRelease } = await import('../engine/tradeService');
+    await forceRelease({ tradeId: req.params['id']!, actorDiscordId: actorDiscordId ?? 'DASHBOARD' });
+    ok(res, { ok: true });
+  } catch (e) { err(res, String(e), 500); }
+});
+
+router.post('/trades/:id/force-cancel', async (req: Request, res: Response) => {
+  try {
+    const { actorDiscordId } = req.body as { actorDiscordId?: string };
+    const { forceCancel } = await import('../engine/tradeService');
+    await forceCancel({ tradeId: req.params['id']!, actorDiscordId: actorDiscordId ?? 'DASHBOARD' });
+    ok(res, { ok: true });
+  } catch (e) { err(res, String(e), 500); }
+});
+
+// ── Exchanger reactivation ────────────────────────────────────────────────
+
+router.post('/exchangers/:id/reactivate', async (req: Request, res: Response) => {
+  try {
+    const { reactivateExchanger } = await import('../admin/exchangerService');
+    const result = await reactivateExchanger({
+      exchangerId: req.params['id']!,
+      adminDiscordId: 'DASHBOARD',
+    });
+    ok(res, result);
+  } catch (e) { err(res, String(e), 500); }
+});
+
+// ── System info ───────────────────────────────────────────────────────────
+
+router.get('/system', async (_req: Request, res: Response) => {
+  try {
+    const mem = process.memoryUsage();
+    ok(res, {
+      nodeVersion: process.version,
+      platform: process.platform,
+      arch: process.arch,
+      uptime: process.uptime(),
+      memory: {
+        rss: mem.rss,
+        heapUsed: mem.heapUsed,
+        heapTotal: mem.heapTotal,
+      },
+      env: process.env['NODE_ENV'] ?? 'development',
     });
   } catch (e) { err(res, String(e), 500); }
 });
