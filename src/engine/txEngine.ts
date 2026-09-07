@@ -31,6 +31,7 @@ import { feeKey, withdrawalKey } from '../security/idempotency';
 import { db } from '../db/client';
 import { getTradeById, transitionTrade } from './tradeService';
 import type { DbTrade, Asset } from '../types';
+import { queueWithdrawal } from '../withdrawal/withdrawalService';
 
 const ECPair = ECPairFactory(ecc);
 
@@ -43,13 +44,11 @@ function explorerLink(asset: Asset, txId: string): string {
   switch (asset) {
     case 'BTC':        return t ? `https://live.blockcypher.com/btc-testnet/tx/${txId}/` : `https://blockstream.info/tx/${txId}`;
     case 'LTC':        return `https://blockchair.com/litecoin/transaction/${txId}`;
-    import { queueWithdrawal } from '../withdrawal/withdrawalService';
     case 'ETH':
     case 'USDT_ERC20':
     case 'USDC_ERC20': return t ? `https://sepolia.etherscan.io/tx/${txId}` : `https://etherscan.io/tx/${txId}`;
     case 'USDC_SPL':   return t ? `https://explorer.solana.com/tx/${txId}?cluster=devnet` : `https://solscan.io/tx/${txId}`;
     default:           return txId;
-      processNow = false,
   }
 }
 
@@ -61,6 +60,7 @@ export async function sendTradePayment(
   trade: DbTrade,
   exchangerId: string,
   adminDiscordId?: string,
+  processNow = false,
 ): Promise<void> {
   const currentTrade = await getTradeById(trade.id);
   if (!currentTrade) throw new Error(`Trade ${trade.id} not found`);
@@ -69,6 +69,18 @@ export async function sendTradePayment(
     throw new Error(`Trade ${trade.id} cannot be paid from status ${currentTrade.status}`);
   }
   trade = currentTrade;
+
+  if (!processNow) {
+    if (!trade.user_wallet_address) throw new Error('No destination wallet address on trade');
+    await queueWithdrawal({
+      tradeId: trade.id,
+      exchangerId,
+      asset: trade.asset,
+      amount: trade.amount,
+      destination: trade.user_wallet_address,
+    });
+    return;
+  }
 
   const log = logger.child({ tradeId: trade.id, asset: trade.asset });
 
