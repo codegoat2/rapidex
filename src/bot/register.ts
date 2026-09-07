@@ -10,6 +10,7 @@ import { config } from '../config/env';
 import { data as verifyData } from './commands/verifyExchanger';
 import { data as profileData } from './commands/profile';
 import { data as setupPanelData } from './commands/setupPanel';
+import { data as setupForumData } from './commands/setupForum';
 import { data as helpData } from './commands/help';
 import { allAdminCommandData } from './commands/adminCommands';
 import { depositAddressesCommand, myTradesCommand } from './commands/exchangerCommands';
@@ -19,6 +20,7 @@ const commands = [
   verifyData.toJSON(),
   profileData.toJSON(),
   setupPanelData.toJSON(),
+  setupForumData.toJSON(),
   helpData.toJSON(),
   myTradesCommand.toJSON(),
   depositAddressesCommand.toJSON(),

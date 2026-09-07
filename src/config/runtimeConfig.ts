@@ -20,3 +20,4 @@ export const getChannelAdminAlerts   = () => getOrFallback('CHANNEL_ADMIN_ALERTS
 export const getChannelAnnouncements = () => getOrFallback('CHANNEL_ANNOUNCEMENTS', config.CHANNEL_ANNOUNCEMENTS);
 export const getTicketCategory       = () => getOrFallback('TICKET_CATEGORY_ID',    config.TICKET_CATEGORY_ID);
 export const getNetwork              = () => getOrFallback('NETWORK',               config.NETWORK);
+export const getForumChannelId       = () => getOrFallback('FORUM_CHANNEL_ID',      config.FORUM_CHANNEL_ID);

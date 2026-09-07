@@ -132,6 +132,7 @@ export interface DbTrade {
   user_note: string | null;
   status: TradeStatus;
   ticket_channel_id: string;
+  forum_thread_id: string | null;
   user_wallet_address: string | null;
   tx_id: string | null;
   claimed_at: Date | null;

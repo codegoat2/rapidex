@@ -458,6 +458,9 @@ async function postTicketMessage(
     embeds:     [embed],
     components: [buildClaimRow(trade.id)],
   });
+
+  // Post to forum channel for exchangers to browse (non-fatal if forum not configured)
+  void (await import('../services/forumService')).postTradeToForum(trade);
 }
 
 // ---------------------------------------------------------------------------

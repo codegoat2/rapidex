@@ -93,8 +93,9 @@ export async function handleClaim(
       });
     }
 
-    await interaction.editReply(`✅ You have claimed trade \`${trade.id}\`. Escrow locked: **${trade.amount} ${trade.asset}**`);
+    await interaction.editReply(`You have claimed trade \`${trade.id}\`. Escrow locked: **${trade.amount} ${trade.asset}**`);
     void notifyAsync('notifyTradeClaimed', trade.id, interaction.user.id);
+    void (await import('../services/forumService')).closeForumThread(trade.id, 'CLAIMED');
     logger.info({ tradeId: trade.id, exchangerId: exchanger.id }, 'Trade claimed');
     return;
   } catch (err) {
