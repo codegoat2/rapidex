@@ -63,7 +63,7 @@ export async function createTradeQuote(params: {
   const feePercentage = feeConfig?.fee_percentage ?? '0';
   const minimumFee = feeConfig?.min_fee_amount ?? '0';
   const feeAmount = maxDecimal(
-    multiplyDecimal(params.amount, feePercentage, 4, 18),
+    multiplyDecimal(params.amount, feePercentage, 4),
     minimumFee,
   );
   const fiatAmount = multiplyDecimal(params.amount, rate, 18);

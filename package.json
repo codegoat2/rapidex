@@ -70,5 +70,13 @@
   },
   "engines": {
     "node": ">=20.0.0"
+  },
+  "overrides": {
+    "@discordjs/builders": "1.7.0",
+    "@discordjs/formatters": "0.3.1",
+    "@discordjs/rest": "2.1.0",
+    "@discordjs/util": "1.0.1",
+    "@discordjs/ws": "1.0.2",
+    "discord-api-types": "0.37.61"
   }
 }
