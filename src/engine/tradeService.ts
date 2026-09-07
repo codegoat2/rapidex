@@ -227,3 +227,23 @@ export async function getExchangerActiveTrades(exchangerId: string): Promise<DbT
     ORDER BY created_at DESC
   `;
 }
+
+/** Admin force-release: transitions a disputed trade to COMPLETED. */
+export async function forceRelease(params: { tradeId: string; actorDiscordId: string }): Promise<DbTrade> {
+  return transitionTrade({
+    tradeId: params.tradeId,
+    to: 'COMPLETED',
+    actorDiscordId: params.actorDiscordId,
+    note: 'Force-released by admin via dashboard',
+  });
+}
+
+/** Admin force-cancel: transitions a disputed trade to CANCELLED. */
+export async function forceCancel(params: { tradeId: string; actorDiscordId: string }): Promise<DbTrade> {
+  return transitionTrade({
+    tradeId: params.tradeId,
+    to: 'CANCELLED',
+    actorDiscordId: params.actorDiscordId,
+    note: 'Force-cancelled by admin via dashboard',
+  });
+}

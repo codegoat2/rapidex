@@ -114,6 +114,37 @@ export async function banExchanger(params: {
 }
 
 // ---------------------------------------------------------------------------
+// Reactivate (un-ban)
+// ---------------------------------------------------------------------------
+
+export async function reactivateExchanger(params: {
+  exchangerId:    string;
+  adminDiscordId: string;
+}): Promise<DbExchanger> {
+  return db.begin(async (sql) => {
+    const rows = await sql<DbExchanger[]>`
+      UPDATE exchangers
+      SET is_banned = FALSE, is_active = TRUE, ban_reason = NULL
+      WHERE id = ${params.exchangerId}
+      RETURNING *
+    `;
+    if (rows.length === 0) throw new Error(`Exchanger ${params.exchangerId} not found`);
+
+    await sql`
+      INSERT INTO audit_logs (actor_discord_id, target_discord_id, action, entity_type, entity_id, metadata)
+      VALUES (
+        ${params.adminDiscordId}, ${rows[0].discord_id}, 'EXCHANGER_VERIFIED',
+        'exchanger', ${rows[0].id},
+        ${JSON.stringify({ reactivated: true })}::jsonb
+      )
+    `;
+
+    logger.info({ exchangerId: params.exchangerId, adminDiscordId: params.adminDiscordId }, 'Exchanger reactivated');
+    return rows[0];
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Profile
 // ---------------------------------------------------------------------------
 
