@@ -18,4 +18,5 @@ export const getRoleAdmin            = () => getOrFallback('ROLE_ADMIN',        
 export const getRoleExchanger        = () => getOrFallback('ROLE_EXCHANGER',        config.ROLE_EXCHANGER);
 export const getChannelAdminAlerts   = () => getOrFallback('CHANNEL_ADMIN_ALERTS',  config.CHANNEL_ADMIN_ALERTS);
 export const getChannelAnnouncements = () => getOrFallback('CHANNEL_ANNOUNCEMENTS', config.CHANNEL_ANNOUNCEMENTS);
+export const getTicketCategory       = () => getOrFallback('TICKET_CATEGORY_ID',    config.TICKET_CATEGORY_ID);
 export const getNetwork              = () => getOrFallback('NETWORK',               config.NETWORK);

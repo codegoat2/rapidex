@@ -22,6 +22,7 @@ const envSchema = z.object({
   ROLE_EXCHANGER:        z.string().default(''),
   CHANNEL_ADMIN_ALERTS:  z.string().default(''),
   CHANNEL_ANNOUNCEMENTS: z.string().default(''),
+  TICKET_CATEGORY_ID:    z.string().default(''),
 
   // ---- Database (Supabase) ------------------------------------------
   DATABASE_URL:      z.string().url(),

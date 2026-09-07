@@ -1,3 +1,4 @@
+- Ticket category ID (TICKET_CATEGORY_ID)
 # RapidEx — Supabase + Railway Deployment Guide
 
 ## Architecture

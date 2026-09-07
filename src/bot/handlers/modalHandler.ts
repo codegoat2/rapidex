@@ -21,7 +21,8 @@ import { createTrade } from '../../engine/tradeService';
 import { buildTradeEmbed, buildClaimRow } from '../embeds/tradeEmbed';
 import { logger } from '../../utils/logger';
 import { config } from '../../config/env';
-import type { Asset, FiatCurrency, FiatMethod, TradeDirection } from '../../types';
+import { getTicketCategory } from '../../config/runtimeConfig';
+import type { Asset, DbTrade, FiatCurrency, FiatMethod, TradeDirection } from '../../types';
 
 // ---------------------------------------------------------------------------
 // Zod schemas for modal field validation
@@ -106,12 +107,30 @@ async function handleTradeCreate(interaction: ModalSubmitInteraction): Promise<v
 
   const guild = interaction.guild!;
 
-  // Create private ticket channel
-  const channelName = `trade-${interaction.user.username}-${Date.now().toString(36)}`.toLowerCase().slice(0, 100);
+  const safeUsername = interaction.user.username
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 32)
+    .replace(/^-|-$/g, '') || 'user';
+  const channelName = `trade-${safeUsername}-${Date.now().toString(36)}`.slice(0, 100);
+  const configuredCategoryId = await getTicketCategory();
+  const category = configuredCategoryId
+    ? guild.channels.cache.get(configuredCategoryId)
+    : undefined;
+  const parent = category?.type === ChannelType.GuildCategory ? category.id : undefined;
+
+  if (configuredCategoryId && !parent) {
+    logger.warn(
+      { configuredCategoryId, guildId: guild.id },
+      'Ticket category setting is invalid or not visible; creating ticket at server root',
+    );
+  }
 
   const ticketChannel = await guild.channels.create({
     name:   channelName,
     type:   ChannelType.GuildText,
+    parent,
     permissionOverwrites: [
       // Deny everyone by default
       { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
@@ -121,16 +140,21 @@ async function handleTradeCreate(interaction: ModalSubmitInteraction): Promise<v
     topic: `RapidEx trade ticket for <@${interaction.user.id}>`,
   });
 
-  // Create trade in DB
-  const trade = await createTrade({
-    userDiscordId:   interaction.user.id,
-    asset:           asset as Asset,
-    amount,
-    fiatCurrency:    fiat_currency as FiatCurrency,
-    fiatMethod:      fiat_method as FiatMethod,
-    direction:       direction as TradeDirection,
-    ticketChannelId: ticketChannel.id,
-  });
+  let trade: DbTrade;
+  try {
+    trade = await createTrade({
+      userDiscordId:   interaction.user.id,
+      asset:           asset as Asset,
+      amount,
+      fiatCurrency:    fiat_currency as FiatCurrency,
+      fiatMethod:      fiat_method as FiatMethod,
+      direction:       direction as TradeDirection,
+      ticketChannelId: ticketChannel.id,
+    });
+  } catch (error) {
+    await ticketChannel.delete('Trade creation failed; removing orphan ticket').catch(() => undefined);
+    throw error;
+  }
 
   // Post trade summary with Claim button in the ticket channel
   const embed   = buildTradeEmbed(trade);

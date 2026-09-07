@@ -131,18 +131,20 @@ export function buildPanelEmbed(): EmbedBuilder {
     .setTitle('💱 RapidEx Exchange')
     .setDescription(
       [
-        '**Fast, secure crypto exchange via verified exchangers.**',
+        '**Fast, secure crypto exchange through verified exchangers.**',
         '',
-        'Click **Start Exchange** to open a trade ticket.',
+        'Click **Start Exchange** to open a private trade ticket.',
         '',
-        '**Supported Assets**',
-        '`BTC` `LTC` `ETH` `USDT` `USDC`',
+        '**How it works**',
+        '1. Choose your asset, amount, currency, and payment method.',
+        '2. A verified exchanger claims your private ticket.',
+        '3. Confirm payment and release is handled in the ticket.',
         '',
-        '**Supported Fiat**',
-        'Bank Transfer · Revolut · Wise · PayPal · Cash',
+        '**Assets** `BTC` `LTC` `ETH` `USDT_ERC20` `USDC_ERC20` `USDC_SPL`',
+        '**Fiat** `EUR` `USD` `GBP` · Bank Transfer · Revolut · Wise · PayPal · Cash',
       ].join('\n'),
     )
-    .setFooter({ text: 'RapidEx — Powered by verified exchangers' })
+    .setFooter({ text: 'RapidEx — private tickets • verified exchangers' })
     .setTimestamp();
 }
 
