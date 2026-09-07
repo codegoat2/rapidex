@@ -15,10 +15,13 @@
 
 import {
   ButtonInteraction,
+  StringSelectMenuInteraction,
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
   ActionRowBuilder,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
 } from 'discord.js';
 import { logger } from '../../utils/logger';
 
@@ -72,52 +75,46 @@ export async function handleButton(interaction: ButtonInteraction): Promise<void
   }
 }
 
-// ---------------------------------------------------------------------------
-// Panel — open trade creation modal
-// ---------------------------------------------------------------------------
+export async function handleAssetSelection(interaction: StringSelectMenuInteraction): Promise<void> {
+  const asset = interaction.values[0];
+  if (!asset) {
+    await interaction.reply({ content: '❌ Please select an asset.', ephemeral: true });
+    return;
+  }
 
-async function handleStartExchange(interaction: ButtonInteraction): Promise<void> {
   const modal = new ModalBuilder()
-    .setCustomId('trade_create')
-    .setTitle('Start a RapidEx Trade');
-
-  const assetInput = new TextInputBuilder()
-    .setCustomId('asset')
-    .setLabel('Asset symbol, e.g. BTC or USDC_SPL')
-    .setStyle(TextInputStyle.Short)
-    .setRequired(true)
-    .setPlaceholder('BTC');
+    .setCustomId(`trade_create:${asset}`)
+    .setTitle(`Trade details — ${asset}`);
 
   const directionInput = new TextInputBuilder()
     .setCustomId('direction')
-    .setLabel('Direction (BUY or SELL)')
+    .setLabel('Direction: BUY only')
     .setStyle(TextInputStyle.Short)
     .setRequired(true)
     .setPlaceholder('BUY');
 
   const amountInput = new TextInputBuilder()
     .setCustomId('amount')
-    .setLabel('Amount (crypto)')
+    .setLabel('Amount of crypto')
     .setStyle(TextInputStyle.Short)
     .setRequired(true)
     .setPlaceholder('0.05');
 
   const fiatCurrencyInput = new TextInputBuilder()
     .setCustomId('fiat_currency')
-    .setLabel('Fiat Currency (EUR / USD / GBP)')
+    .setLabel('Fiat currency: EUR, USD, or GBP')
     .setStyle(TextInputStyle.Short)
     .setRequired(true)
     .setPlaceholder('EUR');
 
   const fiatMethodInput = new TextInputBuilder()
     .setCustomId('fiat_method')
-    .setLabel('Payment method, e.g. REVOLUT or BANK_TRANSFER')
+    .setLabel('Payment method, e.g. REVOLUT')
     .setStyle(TextInputStyle.Short)
     .setRequired(true)
     .setPlaceholder('REVOLUT');
 
   modal.addComponents(
-    new ActionRowBuilder<TextInputBuilder>().addComponents(assetInput),
     new ActionRowBuilder<TextInputBuilder>().addComponents(directionInput),
     new ActionRowBuilder<TextInputBuilder>().addComponents(amountInput),
     new ActionRowBuilder<TextInputBuilder>().addComponents(fiatCurrencyInput),
@@ -125,6 +122,32 @@ async function handleStartExchange(interaction: ButtonInteraction): Promise<void
   );
 
   await interaction.showModal(modal);
+}
+
+// ---------------------------------------------------------------------------
+// Panel — open trade creation modal
+// ---------------------------------------------------------------------------
+
+async function handleStartExchange(interaction: ButtonInteraction): Promise<void> {
+  const assetSelect = new StringSelectMenuBuilder()
+    .setCustomId('panel:select_asset')
+    .setPlaceholder('Choose the crypto asset')
+    .setMinValues(1)
+    .setMaxValues(1)
+    .addOptions(
+      new StringSelectMenuOptionBuilder().setLabel('Bitcoin').setDescription('BTC').setValue('BTC').setEmoji('₿'),
+      new StringSelectMenuOptionBuilder().setLabel('Litecoin').setDescription('LTC').setValue('LTC').setEmoji('Ł'),
+      new StringSelectMenuOptionBuilder().setLabel('Ethereum').setDescription('ETH').setValue('ETH').setEmoji('◆'),
+      new StringSelectMenuOptionBuilder().setLabel('Tether USD (Ethereum)').setDescription('USDT ERC-20').setValue('USDT_ERC20').setEmoji('💵'),
+      new StringSelectMenuOptionBuilder().setLabel('USD Coin (Ethereum)').setDescription('USDC ERC-20').setValue('USDC_ERC20').setEmoji('💵'),
+      new StringSelectMenuOptionBuilder().setLabel('USD Coin (Solana)').setDescription('USDC SPL').setValue('USDC_SPL').setEmoji('💵'),
+    );
+
+  await interaction.reply({
+    content: 'Choose the asset you want to exchange. You will enter the remaining details next.',
+    components: [new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(assetSelect)],
+    ephemeral: true,
+  });
 }
 
 // ---------------------------------------------------------------------------

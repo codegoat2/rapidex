@@ -51,7 +51,7 @@ export async function handleModal(interaction: ModalSubmitInteraction): Promise<
 
   try {
     if (prefix === 'trade_create') {
-      await handleTradeCreate(interaction);
+      await handleTradeCreate(interaction, rest[0]);
     } else if (prefix === 'wallet_address') {
       const tradeId = rest[0];
       await handleWalletAddress(interaction, tradeId);
@@ -73,7 +73,7 @@ export async function handleModal(interaction: ModalSubmitInteraction): Promise<
 // Trade creation modal
 // ---------------------------------------------------------------------------
 
-async function handleTradeCreate(interaction: ModalSubmitInteraction): Promise<void> {
+async function handleTradeCreate(interaction: ModalSubmitInteraction, selectedAsset?: string): Promise<void> {
   await interaction.deferReply({ ephemeral: true });
 
   // Rate limit
@@ -84,7 +84,7 @@ async function handleTradeCreate(interaction: ModalSubmitInteraction): Promise<v
 
   // Validate fields
   const raw = {
-    asset:         interaction.fields.getTextInputValue('asset').toUpperCase(),
+    asset:         selectedAsset?.toUpperCase() ?? '',
     fiat_method:   interaction.fields.getTextInputValue('fiat_method').toUpperCase(),
     direction:     interaction.fields.getTextInputValue('direction').toUpperCase(),
     amount:        interaction.fields.getTextInputValue('amount').trim(),

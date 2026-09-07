@@ -22,7 +22,7 @@ import { logger } from './utils/logger';
 import { checkDatabaseHealth, closeDatabase } from './db/client';
 import { createDiscordClient } from './bot/client';
 import { handleCommand } from './bot/handlers/commandHandler';
-import { handleButton } from './bot/handlers/buttonHandler';
+import { handleAssetSelection, handleButton } from './bot/handlers/buttonHandler';
 import { handleModal } from './bot/handlers/modalHandler';
 import { registerCommands } from './bot/register';
 import { startExpiryWorker } from './workers/expiryWorker';
@@ -84,6 +84,10 @@ async function main(): Promise<void> {
         await handleCommand(interaction);
       } else if (interaction.isButton()) {
         await handleButton(interaction);
+      } else if (interaction.isStringSelectMenu()) {
+        if (interaction.customId === 'panel:select_asset') {
+          await handleAssetSelection(interaction);
+        }
       } else if (interaction.isModalSubmit()) {
         await handleModal(interaction);
       }
