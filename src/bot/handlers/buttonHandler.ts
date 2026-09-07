@@ -83,7 +83,7 @@ async function handleStartExchange(interaction: ButtonInteraction): Promise<void
 
   const assetInput = new TextInputBuilder()
     .setCustomId('asset')
-    .setLabel('Asset (BTC / LTC / ETH / USDT_ERC20 / USDC_ERC20 / USDC_SPL)')
+    .setLabel('Asset symbol, e.g. BTC or USDC_SPL')
     .setStyle(TextInputStyle.Short)
     .setRequired(true)
     .setPlaceholder('BTC');
@@ -111,7 +111,7 @@ async function handleStartExchange(interaction: ButtonInteraction): Promise<void
 
   const fiatMethodInput = new TextInputBuilder()
     .setCustomId('fiat_method')
-    .setLabel('Payment Method (BANK_TRANSFER / REVOLUT / WISE / PAYPAL / CASH_IN_PERSON / OTHER)')
+    .setLabel('Payment method, e.g. REVOLUT or BANK_TRANSFER')
     .setStyle(TextInputStyle.Short)
     .setRequired(true)
     .setPlaceholder('REVOLUT');
