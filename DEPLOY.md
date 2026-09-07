@@ -49,7 +49,7 @@ npm run migrate
 
 Or via Railway one-off after first deploy:
 ```bash
-railway run npm run migrate
+railway run node dist/db/migrate.js
 ```
 
 ---

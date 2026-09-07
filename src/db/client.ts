@@ -27,8 +27,8 @@ import { logger } from '../utils/logger';
 
 // Use the pool URL if provided (Supabase transaction pooler on port 6543),
 // otherwise fall back to the direct connection string.
-const connectionString =
-  process.env['DATABASE_POOL_URL'] ?? config.DATABASE_URL;
+const poolConnectionString = config.DATABASE_POOL_URL?.trim();
+const connectionString = poolConnectionString || config.DATABASE_URL;
 
 // Supabase pgBouncer requires prepared statements to be disabled
 const isPgBouncer =

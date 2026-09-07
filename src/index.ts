@@ -52,9 +52,9 @@ async function main(): Promise<void> {
   logger.info('RapidEx bot starting...');
 
   // 1. Database
-  const dbHealth = await checkDatabaseHealth();
+  const dbHealth = await waitForDatabase();
   if (!dbHealth.healthy) {
-    logger.error('Database unreachable on startup — aborting');
+    logger.error({ attempts: 5 }, 'Database unreachable after startup retries — aborting');
     process.exit(1);
   }
   logger.info({ latencyMs: dbHealth.latencyMs }, 'Database connected');
@@ -108,6 +108,19 @@ async function main(): Promise<void> {
 
   // 6. Login
   await client.login(config.DISCORD_TOKEN);
+}
+
+async function waitForDatabase(): Promise<{ healthy: boolean; latencyMs: number }> {
+  const maxAttempts = 5;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const health = await checkDatabaseHealth();
+    if (health.healthy) return health;
+    if (attempt < maxAttempts) {
+      logger.warn({ attempt, maxAttempts }, 'Database unavailable — retrying startup check');
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+  }
+  return { healthy: false, latencyMs: 0 };
 }
 
 // ---------------------------------------------------------------------------
