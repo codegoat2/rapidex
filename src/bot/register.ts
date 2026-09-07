@@ -12,6 +12,7 @@ import { data as profileData } from './commands/profile';
 import { data as setupPanelData } from './commands/setupPanel';
 import { data as helpData } from './commands/help';
 import { allAdminCommandData } from './commands/adminCommands';
+import { depositAddressesCommand, myTradesCommand } from './commands/exchangerCommands';
 import { logger } from '../utils/logger';
 
 const commands = [
@@ -19,6 +20,8 @@ const commands = [
   profileData.toJSON(),
   setupPanelData.toJSON(),
   helpData.toJSON(),
+  myTradesCommand.toJSON(),
+  depositAddressesCommand.toJSON(),
   ...allAdminCommandData.map(c => c.toJSON()),
 ];
 

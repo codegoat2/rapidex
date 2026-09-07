@@ -17,7 +17,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     .addFields(
       {
         name: 'User',
-        value: '`/help` — Show this help\n`/profile` — View your exchanger profile',
+        value: '`/help` — Show this help\n`/profile` — View your exchanger profile\n`/my-trades` — View your recent trades\n`/deposit-addresses` — View deposit addresses',
         inline: false,
       },
       {

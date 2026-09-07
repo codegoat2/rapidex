@@ -26,6 +26,7 @@ import { buildTradeEmbed, buildClaimRow } from '../embeds/tradeEmbed';
 import { logger } from '../../utils/logger';
 import { config } from '../../config/env';
 import { getTicketCategory } from '../../config/runtimeConfig';
+import { getSettingBool } from '../../admin/settingsService';
 import { createTradeQuote, consumeTradeQuote, type TradeQuote } from '../../quote/quoteService';
 import type { Asset, DbTrade, FiatCurrency, FiatMethod, TradeDirection } from '../../types';
 
@@ -80,6 +81,11 @@ export async function handleModal(interaction: ModalSubmitInteraction): Promise<
 
 async function handleTradeCreate(interaction: ModalSubmitInteraction, selectedAsset?: string): Promise<void> {
   await interaction.deferReply({ ephemeral: true });
+
+  if (await getSettingBool('MAINTENANCE_MODE')) {
+    await interaction.editReply('🛠️ RapidEx is temporarily in maintenance mode. Please try again later.');
+    return;
+  }
 
   // Rate limit
   if (!checkTicketRateLimit(interaction.user.id)) {

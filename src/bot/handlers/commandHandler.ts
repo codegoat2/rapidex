@@ -8,6 +8,7 @@ import { execute as executeVerify } from '../commands/verifyExchanger';
 import { execute as executeProfile } from '../commands/profile';
 import { execute as executeSetupPanel } from '../commands/setupPanel';
 import { execute as executeHelp } from '../commands/help';
+import { handleDepositAddresses, handleMyTrades } from '../commands/exchangerCommands';
 import {
   handleBalance,
   handleCredit,
@@ -29,6 +30,8 @@ export async function handleCommand(interaction: ChatInputCommandInteraction): P
       case 'profile':            await executeProfile(interaction);      break;
       case 'setup-panel':        await executeSetupPanel(interaction);   break;
       case 'help':               await executeHelp(interaction);         break;
+      case 'my-trades':          await handleMyTrades(interaction);      break;
+      case 'deposit-addresses':  await handleDepositAddresses(interaction); break;
       case 'balance':            await handleBalance(interaction);       break;
       case 'credit':             await handleCredit(interaction);        break;
       case 'debit':              await handleDebit(interaction);         break;
