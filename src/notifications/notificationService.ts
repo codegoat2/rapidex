@@ -11,6 +11,7 @@ import { getTradeById } from '../engine/tradeService';
 import { config } from '../config/env';
 import { logger } from '../utils/logger';
 import { COLORS } from '../bot/embeds/colors';
+import { assetLabel, fiatMethodLabel } from '../bot/embeds/tradeEmbed';
 
 // ---------------------------------------------------------------------------
 // Generic helpers
@@ -50,12 +51,17 @@ export async function notifyTradeClaimed(tradeId: string, exchangerDiscordId: st
 
   const embed = new EmbedBuilder()
     .setColor(COLORS.INFO)
-    .setTitle('✋ Trade Claimed')
-    .setDescription(`Your trade has been claimed by an exchanger. Check your ticket channel for payment instructions.`)
-    .addFields(
-      { name: 'Asset',  value: trade.asset,  inline: true },
-      { name: 'Amount', value: parseFloat(trade.amount).toFixed(8), inline: true },
+    .setTitle('🤝 Trade Claimed')
+    .setDescription(
+      `Your trade has been claimed by a verified exchanger.\n` +
+      `Check your private ticket channel for payment instructions.`,
     )
+    .addFields(
+      { name: '💎 Asset',      value: assetLabel(trade.asset),                                     inline: true },
+      { name: '🔢 Amount',     value: `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``, inline: true },
+      { name: '🆔 Trade ID',   value: `\`${trade.id}\``,                                          inline: false },
+    )
+    .setFooter({ text: 'RapidEx · Verified Exchanger Claimed Your Trade' })
     .setTimestamp();
 
   await postToChannel(trade.ticket_channel_id, embed);
@@ -66,7 +72,6 @@ export async function notifyFiatSent(tradeId: string, _actorDiscordId: string): 
   const trade = await getTradeById(tradeId);
   if (!trade || !trade.exchanger_id) return;
 
-  // Find exchanger discord_id
   const rows = await (await import('../db/client')).db<{ discord_id: string }[]>`
     SELECT discord_id FROM exchangers WHERE id = ${trade.exchanger_id}
   `;
@@ -75,9 +80,17 @@ export async function notifyFiatSent(tradeId: string, _actorDiscordId: string): 
 
   const embed = new EmbedBuilder()
     .setColor(COLORS.WARNING)
-    .setTitle('💳 Payment Sent')
-    .setDescription('The user has confirmed their fiat payment has been sent. Please verify receipt and release the crypto.')
-    .addFields({ name: 'Trade', value: `\`${trade.id}\``, inline: true })
+    .setTitle('💳 Payment Marked as Sent')
+    .setDescription(
+      `The buyer has confirmed their payment has been sent.\n\n` +
+      `**Verify receipt** then choose how to release in the ticket channel.`,
+    )
+    .addFields(
+      { name: '🆔 Trade ID',   value: `\`${trade.id}\``,          inline: true  },
+      { name: '💎 Asset',      value: assetLabel(trade.asset),     inline: true  },
+      { name: '🔢 Amount',     value: `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``, inline: true },
+    )
+    .setFooter({ text: 'RapidEx · Action Required — Verify and Release' })
     .setTimestamp();
 
   await postToChannel(trade.ticket_channel_id, embed);
@@ -90,12 +103,17 @@ export async function notifyCryptoSent(tradeId: string, txId: string, explorerUr
 
   const embed = new EmbedBuilder()
     .setColor(COLORS.PRIMARY)
-    .setTitle('🚀 Crypto Sent!')
-    .setDescription(`**${parseFloat(trade.amount).toFixed(8)} ${trade.asset}** has been sent to your wallet.`)
-    .addFields(
-      { name: '🔗 Transaction', value: `[\`${txId.slice(0, 20)}...\`](${explorerUrl})`, inline: false },
+    .setTitle('🚀 Crypto Sent — Awaiting Confirmation')
+    .setDescription(
+      `**\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\`** has been broadcast to the blockchain.\n\n` +
+      `Your transaction is awaiting network confirmations.`,
     )
-    .setFooter({ text: 'Waiting for blockchain confirmation...' })
+    .addFields(
+      { name: '🔗 Transaction',  value: `[\`${txId.slice(0, 20)}...\`](${explorerUrl})`, inline: false },
+      { name: '📬 Destination',  value: `\`${trade.user_wallet_address ?? 'N/A'}\``,     inline: false },
+      { name: '🆔 Trade ID',     value: `\`${trade.id}\``,                               inline: true  },
+    )
+    .setFooter({ text: 'RapidEx · Transaction Broadcast · Waiting for Confirmations' })
     .setTimestamp();
 
   await postToChannel(trade.ticket_channel_id, embed);
@@ -109,8 +127,16 @@ export async function notifyTradeCompleted(tradeId: string): Promise<void> {
   const embed = new EmbedBuilder()
     .setColor(COLORS.COMPLETED)
     .setTitle('✅ Trade Completed!')
-    .setDescription(`Your trade has been completed successfully. **${parseFloat(trade.amount).toFixed(8)} ${trade.asset}** confirmed on-chain.`)
-    .addFields({ name: 'Trade ID', value: `\`${trade.id}\`` })
+    .setDescription(
+      `Your trade has been completed successfully.\n\n` +
+      `Thank you for using RapidEx!`,
+    )
+    .addFields(
+      { name: '💎 Asset',    value: assetLabel(trade.asset),                                     inline: true  },
+      { name: '🔢 Amount',   value: `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``, inline: true  },
+      { name: '🆔 Trade ID', value: `\`${trade.id}\``,                                          inline: false },
+    )
+    .setFooter({ text: 'RapidEx · Trade Complete · Come back anytime' })
     .setTimestamp();
 
   await postToChannel(trade.ticket_channel_id, embed);
@@ -123,8 +149,16 @@ export async function notifyTradeExpired(tradeId: string): Promise<void> {
 
   const embed = new EmbedBuilder()
     .setColor(COLORS.ERROR)
-    .setTitle('⏰ Trade Expired')
-    .setDescription(`Your trade was not claimed by an exchanger within ${config.TIMEOUT_OPEN_MINUTES} minutes and has expired. You can open a new trade at any time.`)
+    .setTitle('⏰ Trade Expired — No Exchanger Available')
+    .setDescription(
+      `Your trade was not claimed by an exchanger within **${config.TIMEOUT_OPEN_MINUTES} minutes** and has expired.\n\n` +
+      `You can open a new trade at any time from the exchange panel.`,
+    )
+    .addFields(
+      { name: '💎 Asset',    value: assetLabel(trade.asset),     inline: true },
+      { name: '🆔 Trade ID', value: `\`${trade.id}\``,          inline: true },
+    )
+    .setFooter({ text: 'RapidEx · Trade Expired · No action needed' })
     .setTimestamp();
 
   await postToChannel(trade.ticket_channel_id, embed);
@@ -138,8 +172,14 @@ export async function notifyTradeCancelled(tradeId: string): Promise<void> {
   const embed = new EmbedBuilder()
     .setColor(COLORS.ERROR)
     .setTitle('❌ Trade Cancelled')
-    .setDescription('This trade has been cancelled. The exchanger\'s escrow has been released.')
-    .addFields({ name: 'Trade ID', value: `\`${trade.id}\`` })
+    .setDescription(
+      `This trade has been cancelled. The exchanger's escrow has been released.\n\n` +
+      `If you believe this was an error, please contact an admin.`,
+    )
+    .addFields(
+      { name: '🆔 Trade ID', value: `\`${trade.id}\``, inline: true },
+    )
+    .setFooter({ text: 'RapidEx · Trade Cancelled' })
     .setTimestamp();
 
   await postToChannel(trade.ticket_channel_id, embed);
@@ -152,9 +192,19 @@ export async function notifyDisputeRaised(tradeId: string, actorDiscordId: strin
 
   const embed = new EmbedBuilder()
     .setColor(COLORS.DISPUTED)
-    .setTitle('⚠️ Dispute Raised')
-    .setDescription(`A dispute has been raised on this trade. An admin will review shortly.`)
-    .addFields({ name: 'Raised by', value: `<@${actorDiscordId}>`, inline: true })
+    .setTitle('⚠️ Dispute Raised — Admin Review Required')
+    .setDescription(
+      `A dispute has been raised on this trade.\n\n` +
+      `An admin will review the situation and resolve it shortly.\n` +
+      `**Please do not take any further action** until the admin has resolved the dispute.`,
+    )
+    .addFields(
+      { name: '👤 Raised By', value: `<@${actorDiscordId}>`, inline: true  },
+      { name: '💎 Asset',     value: assetLabel(trade.asset), inline: true  },
+      { name: '🔢 Amount',    value: `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``, inline: true },
+      { name: '🆔 Trade ID',  value: `\`${trade.id}\``,      inline: false },
+    )
+    .setFooter({ text: 'RapidEx · Dispute Under Review' })
     .setTimestamp();
 
   await postToChannel(trade.ticket_channel_id, embed);
@@ -176,9 +226,17 @@ export async function notifyDepositCredited(
 
     const embed = new EmbedBuilder()
       .setColor(COLORS.SUCCESS)
-      .setTitle('💰 Deposit Credited')
-      .setDescription(`**${parseFloat(amount).toFixed(8)} ${asset}** has been credited to your RapidEx balance.`)
-      .addFields({ name: 'TX', value: `\`${txId.slice(0, 40)}\``, inline: false })
+      .setTitle('💰 Deposit Credited to Your Balance')
+      .setDescription(
+        `**\`${parseFloat(amount).toFixed(8)} ${asset}\`** has been credited to your RapidEx exchanger balance.\n\n` +
+        `Your available balance has been updated and you can now claim trades.`,
+      )
+      .addFields(
+        { name: '💎 Asset',       value: assetLabel(asset), inline: true  },
+        { name: '🔢 Amount',      value: `\`${parseFloat(amount).toFixed(8)} ${asset}\``, inline: true },
+        { name: '🔗 Transaction', value: `\`${txId.slice(0, 40)}\``, inline: false },
+      )
+      .setFooter({ text: 'RapidEx · Deposit Confirmed' })
       .setTimestamp();
 
     await dmUser(discordId, embed);
@@ -206,8 +264,9 @@ export async function sendAdminAlert(message: string): Promise<void> {
       embeds: [
         new EmbedBuilder()
           .setColor(COLORS.ERROR)
-          .setTitle('🚨 RapidEx Alert')
+          .setTitle('🚨 RapidEx System Alert')
           .setDescription(message)
+          .setFooter({ text: 'RapidEx · Admin Alert' })
           .setTimestamp(),
       ],
     });

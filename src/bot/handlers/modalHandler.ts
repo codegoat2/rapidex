@@ -77,6 +77,9 @@ export async function handleModal(interaction: ModalSubmitInteraction): Promise<
       await handleTradeModal(interaction, direction, param1, param2);
     } else if (prefix === 'wallet_address') {
       await handleWalletAddress(interaction, parts[1]!);
+    } else if (prefix === 'set_terms_modal') {
+      const { handleSetTermsModal } = await import('../commands/exchangerCommands');
+      await handleSetTermsModal(interaction);
     } else {
       logger.warn({ customId: interaction.customId }, 'Unknown modal prefix');
     }

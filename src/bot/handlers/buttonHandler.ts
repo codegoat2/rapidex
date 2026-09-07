@@ -146,6 +146,24 @@ export async function handleButton(interaction: ButtonInteraction): Promise<void
       case 'release':
         await handleReleaseButton(interaction, id);
         break;
+      case 'release_internal':
+        await (await import('./tradeFlowHandler')).handleReleaseInternal(interaction, id);
+        break;
+      case 'release_external':
+        await (await import('./tradeFlowHandler')).handleReleaseExternal(interaction, id);
+        break;
+      case 'ext_received':
+        await (await import('./tradeFlowHandler')).handleExternalPaymentReceived(interaction, id);
+        break;
+      case 'ext_not_received':
+        await (await import('./tradeFlowHandler')).handleExternalPaymentNotReceived(interaction, id);
+        break;
+      case 'terms_accept':
+        await (await import('./tradeFlowHandler')).handleTermsAccept(interaction, id);
+        break;
+      case 'terms_decline':
+        await (await import('./tradeFlowHandler')).handleTermsDecline(interaction, id);
+        break;
       case 'dispute':
         await (await import('./tradeFlowHandler')).handleDispute(interaction, id);
         break;
@@ -163,6 +181,9 @@ export async function handleButton(interaction: ButtonInteraction): Promise<void
         break;
       case 'quote_confirm':
         await (await import('./modalHandler')).handleQuoteConfirmation(interaction, id);
+        break;
+      case 'noq_confirm':
+        await (await import('./modalHandler')).handleNoQuoteConfirmation(interaction, id);
         break;
       case 'quote_cancel':
         await interaction.update({

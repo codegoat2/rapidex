@@ -1,13 +1,31 @@
-import { ChatInputCommandInteraction, EmbedBuilder, SlashCommandBuilder } from 'discord.js';
+import {
+  ChatInputCommandInteraction,
+  EmbedBuilder,
+  SlashCommandBuilder,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  ActionRowBuilder,
+  ModalSubmitInteraction,
+} from 'discord.js';
 import { requirePermission } from '../../security/rbac';
-import { getExchangerProfile } from '../../admin/exchangerService';
+import { getExchangerProfile, setExchangerTerms, getExchangerTerms } from '../../admin/exchangerService';
 import { db } from '../../db/client';
 import { adminCredit, adminDebit, InsufficientBalanceError } from '../../ledger/ledgerService';
 import { manualAdjustmentKey } from '../../security/idempotency';
 import { queueWithdrawal } from '../../withdrawal/withdrawalService';
+import { COLORS } from '../embeds/colors';
 import type { Asset } from '../../types';
 
 const ASSETS: Asset[] = ['BTC', 'LTC', 'ETH', 'SOL', 'BNB', 'USDT_BEP20'];
+
+export const setTermsCommand = new SlashCommandBuilder()
+  .setName('set-terms')
+  .setDescription('Set or update your personal Terms & Conditions for buyers');
+
+export const viewTermsCommand = new SlashCommandBuilder()
+  .setName('my-terms')
+  .setDescription('View your current Terms & Conditions');
 
 export const myTradesCommand = new SlashCommandBuilder()
   .setName('my-trades')
@@ -115,4 +133,109 @@ export async function handleWithdraw(interaction: ChatInputCommandInteraction): 
     }
     throw err;
   }
+}
+
+// ---------------------------------------------------------------------------
+// /set-terms — exchanger sets their T&C via a modal
+// ---------------------------------------------------------------------------
+
+export async function handleSetTerms(interaction: ChatInputCommandInteraction): Promise<void> {
+  await requirePermission(interaction, 'TRADE_CLAIM');
+
+  const profile = await getExchangerProfile(interaction.user.id);
+  if (!profile) {
+    await interaction.reply({ content: '❌ You are not a verified exchanger.', ephemeral: true });
+    return;
+  }
+
+  const existing = await getExchangerTerms(profile.exchanger.id);
+
+  const modal = new ModalBuilder()
+    .setCustomId('set_terms_modal')
+    .setTitle('Set Your Terms & Conditions');
+
+  const input = new TextInputBuilder()
+    .setCustomId('terms_text')
+    .setLabel('Your Terms & Conditions')
+    .setStyle(TextInputStyle.Paragraph)
+    .setRequired(true)
+    .setMaxLength(1800)
+    .setPlaceholder(
+      'e.g. Payment must be sent within 15 minutes. No chargebacks. By accepting you agree to my rules...',
+    );
+
+  if (existing) input.setValue(existing);
+
+  modal.addComponents(new ActionRowBuilder<TextInputBuilder>().addComponents(input));
+  await interaction.showModal(modal);
+}
+
+export async function handleSetTermsModal(interaction: ModalSubmitInteraction): Promise<void> {
+  await interaction.deferReply({ ephemeral: true });
+
+  const profile = await getExchangerProfile(interaction.user.id);
+  if (!profile) {
+    await interaction.editReply('❌ You are not a verified exchanger.');
+    return;
+  }
+
+  const terms = interaction.fields.getTextInputValue('terms_text').trim();
+  if (!terms) {
+    await interaction.editReply('❌ Terms cannot be empty.');
+    return;
+  }
+
+  await setExchangerTerms({ exchangerDiscordId: interaction.user.id, terms });
+
+  await interaction.editReply({
+    embeds: [
+      new EmbedBuilder()
+        .setColor(COLORS.SUCCESS)
+        .setTitle('✅ Terms & Conditions Updated')
+        .setDescription('Your T&C are now active. Buyers will be required to accept them before you can claim their trade.')
+        .addFields({ name: 'Your Terms', value: terms.slice(0, 1024) })
+        .setTimestamp(),
+    ],
+  });
+}
+
+// ---------------------------------------------------------------------------
+// /my-terms — view current T&C
+// ---------------------------------------------------------------------------
+
+export async function handleMyTerms(interaction: ChatInputCommandInteraction): Promise<void> {
+  await requirePermission(interaction, 'TRADE_CLAIM');
+  await interaction.deferReply({ ephemeral: true });
+
+  const profile = await getExchangerProfile(interaction.user.id);
+  if (!profile) {
+    await interaction.editReply('❌ You are not a verified exchanger.');
+    return;
+  }
+
+  const terms = await getExchangerTerms(profile.exchanger.id);
+
+  if (!terms) {
+    await interaction.editReply({
+      embeds: [
+        new EmbedBuilder()
+          .setColor(COLORS.INFO)
+          .setTitle('📋 Your Terms & Conditions')
+          .setDescription('You have not set any Terms & Conditions yet.\nUse `/set-terms` to create them.')
+          .setTimestamp(),
+      ],
+    });
+    return;
+  }
+
+  await interaction.editReply({
+    embeds: [
+      new EmbedBuilder()
+        .setColor(COLORS.PRIMARY)
+        .setTitle('📋 Your Terms & Conditions')
+        .setDescription(terms)
+        .setFooter({ text: 'Use /set-terms to update' })
+        .setTimestamp(),
+    ],
+  });
 }

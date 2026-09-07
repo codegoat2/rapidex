@@ -225,3 +225,79 @@ export async function getExchangerByDiscordId(discordId: string): Promise<DbExch
   const rows = await db<DbExchanger[]>`SELECT * FROM exchangers WHERE discord_id = ${discordId}`;
   return rows[0] ?? null;
 }
+
+// ---------------------------------------------------------------------------
+// Terms & Conditions
+// ---------------------------------------------------------------------------
+
+import { createHash } from 'crypto';
+
+/** Compute SHA-256 fingerprint of T&C text for change detection. */
+function hashTerms(text: string): string {
+  return createHash('sha256').update(text.trim()).digest('hex');
+}
+
+/** Set or update an exchanger's T&C text. */
+export async function setExchangerTerms(params: {
+  exchangerDiscordId: string;
+  terms: string;
+}): Promise<DbExchanger> {
+  const { exchangerDiscordId, terms } = params;
+  const rows = await db<DbExchanger[]>`
+    UPDATE exchangers
+    SET terms_and_conditions = ${terms.trim()}, updated_at = NOW()
+    WHERE discord_id = ${exchangerDiscordId}
+    RETURNING *
+  `;
+  if (rows.length === 0) throw new Error('Exchanger not found');
+  logger.info({ exchangerDiscordId }, 'Exchanger T&C updated');
+  return rows[0];
+}
+
+/** Get an exchanger's current T&C text (null = no terms set). */
+export async function getExchangerTerms(exchangerId: string): Promise<string | null> {
+  const rows = await db<{ terms_and_conditions: string | null }[]>`
+    SELECT terms_and_conditions FROM exchangers WHERE id = ${exchangerId}
+  `;
+  return rows[0]?.terms_and_conditions ?? null;
+}
+
+/**
+ * Check whether a user has accepted the *current* T&C hash for an exchanger.
+ * Returns false if the exchanger has no T&C set (no gate required).
+ */
+export async function hasUserAcceptedTerms(params: {
+  userDiscordId: string;
+  exchangerId: string;
+}): Promise<boolean> {
+  const { userDiscordId, exchangerId } = params;
+  const terms = await getExchangerTerms(exchangerId);
+  if (!terms) return true; // no T&C → always allowed
+
+  const hash = hashTerms(terms);
+  const rows = await db<{ id: string }[]>`
+    SELECT id FROM exchanger_tc_acceptances
+    WHERE user_discord_id = ${userDiscordId}
+      AND exchanger_id    = ${exchangerId}
+      AND tc_hash         = ${hash}
+  `;
+  return rows.length > 0;
+}
+
+/** Record that a user accepted an exchanger's T&C (idempotent via ON CONFLICT). */
+export async function recordTermsAcceptance(params: {
+  userDiscordId: string;
+  exchangerId: string;
+  tradeId?: string | null;
+}): Promise<void> {
+  const { userDiscordId, exchangerId, tradeId } = params;
+  const terms = await getExchangerTerms(exchangerId);
+  if (!terms) return;
+
+  const hash = hashTerms(terms);
+  await db`
+    INSERT INTO exchanger_tc_acceptances (user_discord_id, exchanger_id, tc_hash, trade_id)
+    VALUES (${userDiscordId}, ${exchangerId}, ${hash}, ${tradeId ?? null})
+    ON CONFLICT (user_discord_id, exchanger_id, tc_hash) DO NOTHING
+  `;
+}

@@ -94,8 +94,18 @@ export interface DbExchanger {
   ban_reason: string | null;
   verified_by_discord_id: string;
   verified_at: Date;
+  terms_and_conditions: string | null;
   created_at: Date;
   updated_at: Date;
+}
+
+export interface DbTcAcceptance {
+  id: string;
+  user_discord_id: string;
+  exchanger_id: string;
+  tc_hash: string;
+  trade_id: string | null;
+  accepted_at: Date;
 }
 
 export interface DbDepositAddress {
