@@ -69,7 +69,8 @@ export async function handleButton(interaction: ButtonInteraction): Promise<void
         await interaction.reply({ content: '❌ Unknown action.', ephemeral: true });
     }
   } catch (err) {
-    logger.error({ err, customId: interaction.customId }, 'Button handler error');
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error({ err, customId: interaction.customId, message }, 'Button handler error');
     const msg = '❌ Something went wrong. Please try again.';
     try {
       if (interaction.replied || interaction.deferred) {
