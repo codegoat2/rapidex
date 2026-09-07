@@ -189,7 +189,7 @@ export async function handleWalletAddressSubmit(
     updates:        { userWalletAddress: walletAddress },
   });
 
-  await interaction.editReply('✅ Wallet address received. Sending crypto now...');
+  await interaction.editReply('✅ Wallet address received. Your withdrawal has been queued for processing.');
 
   // Trigger TX engine async
   void sendCryptoAsync(updated, exchanger.id);

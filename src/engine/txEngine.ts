@@ -43,11 +43,13 @@ function explorerLink(asset: Asset, txId: string): string {
   switch (asset) {
     case 'BTC':        return t ? `https://live.blockcypher.com/btc-testnet/tx/${txId}/` : `https://blockstream.info/tx/${txId}`;
     case 'LTC':        return `https://blockchair.com/litecoin/transaction/${txId}`;
+    import { queueWithdrawal } from '../withdrawal/withdrawalService';
     case 'ETH':
     case 'USDT_ERC20':
     case 'USDC_ERC20': return t ? `https://sepolia.etherscan.io/tx/${txId}` : `https://etherscan.io/tx/${txId}`;
     case 'USDC_SPL':   return t ? `https://explorer.solana.com/tx/${txId}?cluster=devnet` : `https://solscan.io/tx/${txId}`;
     default:           return txId;
+      processNow = false,
   }
 }
 
@@ -291,6 +293,11 @@ async function waitForConfirmations(trade: DbTrade, _exchangerId: string, txId: 
           note: `${confs} confirmations received`,
           updates: { completedAt: new Date() },
         });
+        await db`
+          UPDATE withdrawals
+          SET status = 'CONFIRMED', tx_id = ${txId}, updated_at = NOW()
+          WHERE trade_id = ${trade.id} AND status IN ('BROADCAST', 'PROCESSING')
+        `;
         try {
           const { notifyTradeCompleted } = await import('../notifications/notificationService');
           await notifyTradeCompleted(trade.id);

@@ -220,6 +220,35 @@ router.get('/webhooks', async (req: Request, res: Response) => {
   } catch (e) { err(res, String(e), 500); }
 });
 
+// ── Withdrawal Queue ─────────────────────────────────────────────────────
+
+router.get('/withdrawals', async (req: Request, res: Response) => {
+  try {
+    const status = req.query['status'] as string | undefined;
+    const rows = await db`
+      SELECT w.*, t.user_discord_id, t.status AS trade_status
+      FROM withdrawals w
+      JOIN trades t ON t.id = w.trade_id
+      ${status ? db`WHERE w.status=${status}` : db``}
+      ORDER BY w.created_at DESC LIMIT 200
+    `;
+    ok(res, rows);
+  } catch (e) { err(res, String(e), 500); }
+});
+
+router.post('/withdrawals/:id/retry', async (req: Request, res: Response) => {
+  try {
+    const [row] = await db`
+      UPDATE withdrawals
+      SET status = 'PENDING', next_attempt_at = NOW(), last_error = NULL, updated_at = NOW()
+      WHERE id=${req.params['id']} AND status IN ('FAILED', 'BROADCAST')
+      RETURNING id, status
+    `;
+    if (!row) return err(res, 'Withdrawal is not retryable', 409);
+    ok(res, row);
+  } catch (e) { err(res, String(e), 500); }
+});
+
 // ── Fee Config ─────────────────────────────────────────────────────────────
 
 router.get('/fees', async (_req: Request, res: Response) => {

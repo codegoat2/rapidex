@@ -29,6 +29,7 @@ import { startExpiryWorker } from './workers/expiryWorker';
 import { startAccountingWorker } from './workers/accountingWorker';
 import { startMonitoringWorker } from './monitor/monitoringWorker';
 import { startReconciliationWorker } from './monitor/reconciliationWorker';
+import { startWithdrawalWorker } from './workers/withdrawalWorker';
 import { startWebhookServer } from './monitor/webhookServer';
 
 // ---------------------------------------------------------------------------
@@ -75,6 +76,7 @@ async function main(): Promise<void> {
     startAccountingWorker();
     startMonitoringWorker();
     startReconciliationWorker();
+    startWithdrawalWorker();
   });
 
   // 3. Interaction router
