@@ -41,7 +41,7 @@ const envSchema = z.object({
   NOWNODES_API_KEY: z.string().min(1),
 
   // ---- Dashboard -----------------------------------------------------
-  DASHBOARD_SECRET: z.string().min(16),
+  DASHBOARD_SECRET: z.string().min(1),
 
   // ---- Network -------------------------------------------------------
   NETWORK: z.enum(['mainnet', 'testnet']).default('testnet'),
