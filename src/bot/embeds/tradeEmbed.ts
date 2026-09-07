@@ -49,6 +49,8 @@ export function buildTradeEmbed(trade: DbTrade, exchangerUsername?: string): Emb
       { name: 'Asset',          value: `\`${trade.asset}\``,                    inline: true },
       { name: 'Amount',         value: `\`${parseFloat(trade.amount).toFixed(8)}\``, inline: true },
       { name: 'Fiat',           value: `${trade.fiat_currency} via ${trade.fiat_method.replace(/_/g, ' ')}`, inline: true },
+      ...(trade.fiat_amount ? [{ name: 'Fiat total', value: `\`${parseFloat(trade.fiat_amount).toFixed(2)} ${trade.fiat_currency}\``, inline: true }] : []),
+      ...(trade.rate ? [{ name: 'Locked rate', value: `\`${trade.rate} ${trade.fiat_currency}\``, inline: true }] : []),
       { name: 'Status',         value: STATUS_LABELS[trade.status] ?? trade.status, inline: true },
     )
     .setTimestamp(trade.created_at);

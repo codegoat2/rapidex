@@ -56,6 +56,13 @@ export interface CreateTradeParams {
   fiatMethod:      FiatMethod;
   direction:       TradeDirection;
   ticketChannelId: string;
+  quoteId:         string;
+  fiatAmount:      string;
+  rate:            string;
+  rateSource:      string;
+  feePercentage:   string;
+  feeAmount:       string;
+  quoteExpiresAt:  Date;
 }
 
 export async function createTrade(params: CreateTradeParams): Promise<DbTrade> {
@@ -67,7 +74,9 @@ export async function createTrade(params: CreateTradeParams): Promise<DbTrade> {
   const [trade] = await db<DbTrade[]>`
     INSERT INTO trades (
       user_discord_id, asset, amount, fiat_currency,
-      fiat_method, direction, ticket_channel_id, expires_at
+      fiat_method, direction, ticket_channel_id, expires_at,
+      quote_id, fiat_amount, rate, rate_source,
+      fee_percentage_snapshot, fee_amount, quote_expires_at
     ) VALUES (
       ${params.userDiscordId},
       ${params.asset},
@@ -76,7 +85,14 @@ export async function createTrade(params: CreateTradeParams): Promise<DbTrade> {
       ${params.fiatMethod},
       ${params.direction},
       ${params.ticketChannelId},
-      ${expiresAt.toISOString()}
+      ${expiresAt.toISOString()},
+      ${params.quoteId},
+      ${params.fiatAmount},
+      ${params.rate},
+      ${params.rateSource},
+      ${params.feePercentage},
+      ${params.feeAmount},
+      ${params.quoteExpiresAt.toISOString()}
     )
     RETURNING *
   `;

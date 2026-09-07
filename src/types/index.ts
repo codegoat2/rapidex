@@ -110,6 +110,13 @@ export interface DbTrade {
   exchanger_id: string | null;
   asset: Asset;
   amount: string; // numeric stored as string to avoid float precision issues
+  fiat_amount: string | null;
+  quote_id: string | null;
+  rate: string | null;
+  rate_source: string | null;
+  fee_percentage_snapshot: string | null;
+  fee_amount: string | null;
+  quote_expires_at: Date | null;
   fiat_currency: FiatCurrency;
   fiat_method: FiatMethod;
   direction: TradeDirection;

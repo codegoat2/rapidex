@@ -7,8 +7,12 @@
  */
 
 import {
+  ButtonInteraction,
   ModalSubmitInteraction,
+  ButtonBuilder,
+  ButtonStyle,
   ChannelType,
+  EmbedBuilder,
   PermissionFlagsBits,
   TextChannel,
 } from 'discord.js';
@@ -22,6 +26,7 @@ import { buildTradeEmbed, buildClaimRow } from '../embeds/tradeEmbed';
 import { logger } from '../../utils/logger';
 import { config } from '../../config/env';
 import { getTicketCategory } from '../../config/runtimeConfig';
+import { createTradeQuote, consumeTradeQuote, type TradeQuote } from '../../quote/quoteService';
 import type { Asset, DbTrade, FiatCurrency, FiatMethod, TradeDirection } from '../../types';
 
 // ---------------------------------------------------------------------------
@@ -105,36 +110,69 @@ async function handleTradeCreate(interaction: ModalSubmitInteraction, selectedAs
     return;
   }
 
-  const guild = interaction.guild!;
+  const quote = await createTradeQuote({
+    userDiscordId: interaction.user.id,
+    asset: asset as Asset,
+    amount,
+    direction: direction as TradeDirection,
+    fiatCurrency: fiat_currency as FiatCurrency,
+    fiatMethod: fiat_method as FiatMethod,
+  });
 
-  const safeUsername = interaction.user.username
-    .toLowerCase()
-    .replace(/[^a-z0-9-]/g, '-')
-    .replace(/-+/g, '-')
-    .slice(0, 32)
-    .replace(/^-|-$/g, '') || 'user';
+  const quoteEmbed = new EmbedBuilder()
+    .setColor(0x5865F2)
+    .setTitle('Review your locked quote')
+    .setDescription('This quote expires in 5 minutes. Confirm to create your private ticket.')
+    .addFields(
+      { name: 'Asset amount', value: `${quote.amount} ${quote.asset}`, inline: true },
+      { name: 'Fiat total', value: `${quote.fiatAmount} ${quote.fiatCurrency}`, inline: true },
+      { name: 'Rate', value: `1 ${quote.asset} = ${quote.rate} ${quote.fiatCurrency}`, inline: false },
+      { name: 'Fee', value: `${quote.feeAmount} ${quote.asset} (${quote.feePercentage}%)`, inline: true },
+      { name: 'Expires', value: `<t:${Math.floor(quote.expiresAt.getTime() / 1000)}:R>`, inline: true },
+    );
+
+  await interaction.editReply({
+    embeds: [quoteEmbed],
+    components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId(`quote_confirm:${quote.id}`).setLabel('Confirm and create ticket').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`quote_cancel:${quote.id}`).setLabel('Cancel').setStyle(ButtonStyle.Secondary),
+    )],
+  });
+}
+
+export async function handleQuoteConfirmation(interaction: ButtonInteraction, quoteId: string): Promise<void> {
+  await interaction.deferReply({ ephemeral: true });
+  const quote = await consumeTradeQuote(quoteId, interaction.user.id);
+  if (!quote) {
+    await interaction.editReply('❌ This quote has expired or was already used. Start a new exchange.');
+    return;
+  }
+  if (quote.direction === 'SELL') {
+    await interaction.editReply('❌ SELL settlement is not available yet. Please choose BUY.');
+    return;
+  }
+  await createTicketForQuote(interaction, quote);
+}
+
+async function createTicketForQuote(
+  interaction: ModalSubmitInteraction | ButtonInteraction,
+  quote: TradeQuote,
+): Promise<void> {
+  const guild = interaction.guild;
+  if (!guild) throw new Error('Trade tickets can only be created inside a server');
+
+  const safeUsername = interaction.user.username.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').slice(0, 32).replace(/^-|-$/g, '') || 'user';
   const channelName = `trade-${safeUsername}-${Date.now().toString(36)}`.slice(0, 100);
   const configuredCategoryId = await getTicketCategory();
-  const category = configuredCategoryId
-    ? guild.channels.cache.get(configuredCategoryId)
-    : undefined;
+  const category = configuredCategoryId ? guild.channels.cache.get(configuredCategoryId) : undefined;
   const parent = category?.type === ChannelType.GuildCategory ? category.id : undefined;
 
-  if (configuredCategoryId && !parent) {
-    logger.warn(
-      { configuredCategoryId, guildId: guild.id },
-      'Ticket category setting is invalid or not visible; creating ticket at server root',
-    );
-  }
-
   const ticketChannel = await guild.channels.create({
-    name:   channelName,
-    type:   ChannelType.GuildText,
+    name: channelName,
+    type: ChannelType.GuildText,
     parent,
     permissionOverwrites: [
-      // Deny everyone by default
       { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
-      // Allow the user
       { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
     ],
     topic: `RapidEx trade ticket for <@${interaction.user.id}>`,
@@ -143,42 +181,34 @@ async function handleTradeCreate(interaction: ModalSubmitInteraction, selectedAs
   let trade: DbTrade;
   try {
     trade = await createTrade({
-      userDiscordId:   interaction.user.id,
-      asset:           asset as Asset,
-      amount,
-      fiatCurrency:    fiat_currency as FiatCurrency,
-      fiatMethod:      fiat_method as FiatMethod,
-      direction:       direction as TradeDirection,
+      userDiscordId: interaction.user.id,
+      asset: quote.asset,
+      amount: quote.amount,
+      fiatCurrency: quote.fiatCurrency,
+      fiatMethod: quote.fiatMethod,
+      direction: quote.direction,
       ticketChannelId: ticketChannel.id,
+      quoteId: quote.id,
+      fiatAmount: quote.fiatAmount,
+      rate: quote.rate,
+      rateSource: quote.rateSource,
+      feePercentage: quote.feePercentage,
+      feeAmount: quote.feeAmount,
+      quoteExpiresAt: quote.expiresAt,
     });
   } catch (error) {
     await ticketChannel.delete('Trade creation failed; removing orphan ticket').catch(() => undefined);
     throw error;
   }
 
-  // Post trade summary with Claim button in the ticket channel
-  const embed   = buildTradeEmbed(trade);
-  const claimRow = buildClaimRow(trade.id);
-
-  embed.setDescription(
-    [
-      `**User:** <@${interaction.user.id}>`,
-      '_Waiting for a verified exchanger to claim this trade..._',
-    ].join('\n'),
-  );
-
+  const embed = buildTradeEmbed(trade).setDescription(`**User:** <@${interaction.user.id}>\n_Waiting for a verified exchanger to claim this trade..._`);
   await (ticketChannel as TextChannel).send({
-    content:    `<@${interaction.user.id}> Your trade ticket is ready.`,
-    embeds:     [embed],
-    components: [claimRow],
+    content: `<@${interaction.user.id}> Your trade ticket is ready.`,
+    embeds: [embed],
+    components: [buildClaimRow(trade.id)],
   });
-
   await interaction.editReply(`✅ Your trade ticket has been created: <#${ticketChannel.id}>`);
-
-  logger.info(
-    { tradeId: trade.id, userDiscordId: interaction.user.id, asset, amount },
-    'Trade ticket created',
-  );
+  logger.info({ tradeId: trade.id, userDiscordId: interaction.user.id, quoteId: quote.id }, 'Trade ticket created');
 }
 
 // ---------------------------------------------------------------------------

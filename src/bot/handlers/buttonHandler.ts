@@ -58,6 +58,12 @@ export async function handleButton(interaction: ButtonInteraction): Promise<void
       case 'confirm_force_cancel':
         await (await import('./tradeFlowHandler')).handleForceCancel(interaction, id);
         break;
+      case 'quote_confirm':
+        await (await import('./modalHandler')).handleQuoteConfirmation(interaction, id);
+        break;
+      case 'quote_cancel':
+        await interaction.update({ content: 'Quote cancelled. You can start a new exchange from the panel.', embeds: [], components: [] });
+        break;
       default:
         logger.warn({ customId: interaction.customId }, 'Unknown button action');
         await interaction.reply({ content: '❌ Unknown action.', ephemeral: true });

@@ -45,7 +45,7 @@ Discord Bot
 cp .env.example .env
 # fill DATABASE_URL
 npm run migrate
-# Runs 001_initial_schema.sql + 002_bot_settings.sql
+# Runs all pending migrations, including quotes, limits, and ticket settings
 ```
 
 Or via Railway one-off after first deploy:

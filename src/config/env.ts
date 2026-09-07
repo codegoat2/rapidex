@@ -77,6 +77,8 @@ const envSchema = z.object({
   // ---- Rate limits ---------------------------------------------------
   RATE_LIMIT_TICKET_PER_USER_PER_HOUR:     z.coerce.number().int().positive().default(3),
   RATE_LIMIT_COMMANDS_PER_USER_PER_MINUTE: z.coerce.number().int().positive().default(10),
+  MIN_TRADE_AMOUNT: z.coerce.number().positive().default(0.000001),
+  MAX_TRADE_AMOUNT: z.coerce.number().positive().default(1000000),
 
   // ---- Hot wallet thresholds -----------------------------------------
   MIN_HOT_WALLET_BTC: z.coerce.number().positive().default(0.01),

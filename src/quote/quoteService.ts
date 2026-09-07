@@ -1,0 +1,175 @@
+import axios from 'axios';
+import { ethers } from 'ethers';
+import { db } from '../db/client';
+import { config } from '../config/env';
+import { getSettingNumber } from '../admin/settingsService';
+import type { Asset, FiatCurrency, FiatMethod, TradeDirection } from '../types';
+
+const QUOTE_TTL_SECONDS = 300;
+const RATE_CACHE_TTL_MS = 15_000;
+
+const COINGECKO_IDS: Record<Asset, string> = {
+  BTC: 'bitcoin',
+  LTC: 'litecoin',
+  ETH: 'ethereum',
+  USDT_ERC20: 'tether',
+  USDC_ERC20: 'usd-coin',
+  USDC_SPL: 'usd-coin',
+};
+
+const rateCache = new Map<string, { rate: string; expiresAt: number }>();
+
+export interface TradeQuote {
+  id: string;
+  asset: Asset;
+  amount: string;
+  direction: TradeDirection;
+  fiatCurrency: FiatCurrency;
+  fiatMethod: FiatMethod;
+  fiatAmount: string;
+  rate: string;
+  rateSource: string;
+  feePercentage: string;
+  feeAmount: string;
+  expiresAt: Date;
+}
+
+export async function createTradeQuote(params: {
+  userDiscordId: string;
+  asset: Asset;
+  amount: string;
+  direction: TradeDirection;
+  fiatCurrency: FiatCurrency;
+  fiatMethod: FiatMethod;
+}): Promise<TradeQuote> {
+  const minimum = await getSettingNumber('MIN_TRADE_AMOUNT', config.MIN_TRADE_AMOUNT);
+  const maximum = await getSettingNumber('MAX_TRADE_AMOUNT', config.MAX_TRADE_AMOUNT);
+  const amountUnits = ethers.parseUnits(params.amount, 18);
+  if (amountUnits < ethers.parseUnits(String(minimum), 18)) {
+    throw new Error(`Trade amount is below the minimum of ${minimum}`);
+  }
+  if (amountUnits > ethers.parseUnits(String(maximum), 18)) {
+    throw new Error(`Trade amount is above the maximum of ${maximum}`);
+  }
+
+  const rate = await getRate(params.asset, params.fiatCurrency);
+  const [feeConfig] = await db<{ fee_percentage: string; min_fee_amount: string }[]>`
+    SELECT fee_percentage, min_fee_amount
+    FROM fee_config
+    WHERE asset = ${params.asset}
+  `;
+
+  const feePercentage = feeConfig?.fee_percentage ?? '0';
+  const minimumFee = feeConfig?.min_fee_amount ?? '0';
+  const feeAmount = maxDecimal(
+    multiplyDecimal(params.amount, feePercentage, 4, 18),
+    minimumFee,
+  );
+  const fiatAmount = multiplyDecimal(params.amount, rate, 18);
+  const expiresAt = new Date(Date.now() + QUOTE_TTL_SECONDS * 1000);
+
+  const [row] = await db<{ id: string }[]>`
+    INSERT INTO trade_quotes (
+      user_discord_id, asset, amount, direction, fiat_currency, fiat_method, fiat_amount, rate, rate_source,
+      fee_percentage, fee_amount, expires_at
+    ) VALUES (
+      ${params.userDiscordId}, ${params.asset}, ${params.amount}, ${params.direction}, ${params.fiatCurrency}, ${params.fiatMethod}, ${fiatAmount},
+      ${rate}, 'COINGECKO', ${feePercentage}, ${feeAmount}, ${expiresAt.toISOString()}
+    )
+    RETURNING id
+  `;
+
+  return {
+    id: row.id,
+    asset: params.asset,
+    amount: params.amount,
+    direction: params.direction,
+    fiatCurrency: params.fiatCurrency,
+    fiatMethod: params.fiatMethod,
+    fiatAmount,
+    rate,
+    rateSource: 'COINGECKO',
+    feePercentage,
+    feeAmount,
+    expiresAt,
+  };
+}
+
+export async function consumeTradeQuote(quoteId: string, userDiscordId: string): Promise<TradeQuote | null> {
+  return db.begin(async (sql) => {
+    const [row] = await sql<{
+      id: string;
+      asset: Asset;
+      amount: string;
+      direction: TradeDirection;
+      fiat_currency: FiatCurrency;
+      fiat_method: FiatMethod;
+      fiat_amount: string;
+      rate: string;
+      rate_source: string;
+      fee_percentage: string;
+      fee_amount: string;
+      expires_at: Date;
+      consumed_at: Date | null;
+    }[]>`
+      SELECT * FROM trade_quotes
+      WHERE id = ${quoteId} AND user_discord_id = ${userDiscordId}
+      FOR UPDATE
+    `;
+
+    if (!row || row.consumed_at || new Date(row.expires_at).getTime() <= Date.now()) return null;
+
+    await sql`
+      UPDATE trade_quotes SET consumed_at = NOW() WHERE id = ${quoteId}
+    `;
+
+    return {
+      id: row.id,
+      asset: row.asset,
+      amount: row.amount,
+      direction: row.direction,
+      fiatCurrency: row.fiat_currency,
+      fiatMethod: row.fiat_method,
+      fiatAmount: row.fiat_amount,
+      rate: row.rate,
+      rateSource: row.rate_source,
+      feePercentage: row.fee_percentage,
+      feeAmount: row.fee_amount,
+      expiresAt: new Date(row.expires_at),
+    };
+  });
+}
+
+async function getRate(asset: Asset, currency: FiatCurrency): Promise<string> {
+  const cacheKey = `${asset}:${currency}`;
+  const cached = rateCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.rate;
+
+  const response = await axios.get<{ [id: string]: { [fiat: string]: number } }>(
+    'https://api.coingecko.com/api/v3/simple/price',
+    {
+      params: {
+        ids: COINGECKO_IDS[asset],
+        vs_currencies: currency.toLowerCase(),
+      },
+      timeout: 8000,
+    },
+  );
+  const value = response.data[COINGECKO_IDS[asset]]?.[currency.toLowerCase()];
+  if (!Number.isFinite(value) || value <= 0) throw new Error('Unable to obtain a market rate right now');
+
+  const rate = value.toFixed(18);
+  rateCache.set(cacheKey, { rate, expiresAt: Date.now() + RATE_CACHE_TTL_MS });
+  return rate;
+}
+
+function multiplyDecimal(left: string, right: string, rightScale: number): string {
+  const leftUnits = ethers.parseUnits(left, 18);
+  const rightUnits = ethers.parseUnits(right, rightScale);
+  const result = leftUnits * rightUnits / (10n ** BigInt(rightScale));
+  return ethers.formatUnits(result, 18);
+}
+
+function maxDecimal(left: string, right: string): string {
+  return ethers.parseUnits(left, 18) >= ethers.parseUnits(right, 18) ? left : right;
+}
