@@ -49,8 +49,11 @@ npm run migrate
 
 Or via Railway one-off after first deploy:
 ```bash
-railway run node dist/db/migrate.js
+railway run npm run migrate
 ```
+
+`railway run` injects Railway variables into a command running locally. If using
+the Railway service shell instead, run `node dist/db/migrate.js` there.
 
 ---
 

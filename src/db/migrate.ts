@@ -38,7 +38,11 @@ const sql = postgres(connectionString, {
   connection:      { application_name: 'rapidex-migrate' },
 });
 
-const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
+const compiledMigrationsDir = path.join(__dirname, 'migrations');
+const sourceMigrationsDir = path.join(process.cwd(), 'src', 'db', 'migrations');
+const MIGRATIONS_DIR = fs.existsSync(compiledMigrationsDir)
+  ? compiledMigrationsDir
+  : sourceMigrationsDir;
 
 async function getAppliedMigrations(): Promise<Set<string>> {
   // The schema_migrations table might not exist yet on first run
