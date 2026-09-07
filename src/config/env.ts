@@ -36,6 +36,9 @@ const envSchema = z.object({
   // ---- NOWNodes (single provider for all chains) ---------------------
   NOWNODES_API_KEY: z.string().min(1),
 
+  // ---- Dashboard -----------------------------------------------------
+  DASHBOARD_SECRET: z.string().min(16, 'DASHBOARD_SECRET must be at least 16 characters — run: openssl rand -hex 24'),
+
   // ---- Network -------------------------------------------------------
   NETWORK: z.enum(['mainnet', 'testnet']).default('testnet'),
 

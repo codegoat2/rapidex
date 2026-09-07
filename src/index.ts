@@ -11,6 +11,10 @@
  */
 
 import 'dotenv/config';
+// Railway injects PORT — mirror it into WEBHOOK_PORT before config loads
+if (process.env['PORT'] && !process.env['WEBHOOK_PORT']) {
+  process.env['WEBHOOK_PORT'] = process.env['PORT'];
+}
 import * as Sentry from '@sentry/node';
 import { Events, Interaction } from 'discord.js';
 import { config } from './config/env';

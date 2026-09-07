@@ -1,217 +1,146 @@
 /**
- * Webhook HTTP server — receives deposit notifications from:
- *   BlockCypher  (BTC / LTC)
- *   Alchemy      (ETH / ERC-20 USDT, USDC)
- *   Helius       (SOL / SPL USDC)
+ * Main HTTP server — single Express app serving:
  *
- * Flow for every incoming webhook:
- *   1. Verify provider signature
- *   2. Idempotency check (webhook_events table)
- *   3. Record raw event
- *   4. Route to deposit processor
- *   5. Write audit log on error
+ *   /webhooks/nownodes   → deposit webhook (NOWNodes callback)
+ *   /health              → health check (Railway probe)
+ *   /dashboard/*         → admin dashboard SPA + API
  *
- * All routes are registered on a single Express app.
- * In production this runs on WEBHOOK_PORT behind a TLS reverse proxy
- * (handled by Railway/Fly.io ingress).
+ * All on a single port so Railway needs only one service.
  */
 
 import express, { Request, Response, NextFunction } from 'express';
-import { createHmac, timingSafeEqual } from 'crypto';
+import cookieParser from 'cookie-parser';
+import { timingSafeEqual, createHmac } from 'crypto';
 import { config } from '../config/env';
 import { logger } from '../utils/logger';
 import { checkWebhookRateLimit } from '../security/rateLimiter';
 import { processDeposit } from './depositProcessor';
+import dashboardRouter from '../dashboard/dashboardRouter';
+import { getHealthStatus } from './healthCheck';
 
 // ---------------------------------------------------------------------------
-// App setup
+// App
 // ---------------------------------------------------------------------------
 
 export function createWebhookApp(): express.Application {
   const app = express();
 
-  // Raw body needed for signature verification — parse before JSON
-  app.use(
-    express.raw({ type: 'application/json', limit: '1mb' }),
-  );
+  // Raw body for webhook signature verification (must come before JSON parser)
+  app.use('/webhooks', express.raw({ type: 'application/json', limit: '2mb' }));
 
-  // Rate limit all webhook routes
+  // JSON + form for dashboard
+  app.use(express.json({ limit: '1mb' }));
+  app.use(express.urlencoded({ extended: true }));
+  app.use(cookieParser());
+
+  // ── Rate limit all incoming requests ──────────────────────────────────
   app.use((req: Request, res: Response, next: NextFunction) => {
     const ip = req.ip ?? 'unknown';
-    if (!checkWebhookRateLimit(ip)) {
+    if (req.path.startsWith('/webhooks') && !checkWebhookRateLimit(ip)) {
       res.status(429).json({ error: 'Too many requests' });
       return;
     }
     next();
   });
 
-  // ---- BlockCypher (BTC / LTC) -------------------------------------------
-  app.post('/webhooks/blockcypher', async (req: Request, res: Response) => {
+  // ── NOWNodes webhook ──────────────────────────────────────────────────
+  // NOWNodes sends a POST to your callback URL with a JSON body.
+  // Auth: HMAC-SHA256 of raw body using WEBHOOK_SECRET, in X-Nownodes-Signature header.
+  // Fallback: if the header is absent, compare Authorization: Bearer <WEBHOOK_SECRET>
+  app.post('/webhooks/nownodes', async (req: Request, res: Response) => {
     try {
       const rawBody = req.body as Buffer;
 
-      if (!verifyBlockcypherSignature(rawBody, req.headers)) {
-        logger.warn('BlockCypher webhook: invalid signature');
+      if (!verifyNowNodesSignature(rawBody, req.headers)) {
+        logger.warn({}, 'NOWNodes webhook: invalid signature');
         res.status(401).json({ error: 'Invalid signature' });
         return;
       }
 
       const payload = JSON.parse(rawBody.toString('utf8')) as Record<string, unknown>;
-      const eventId = String(payload['hash'] ?? payload['id'] ?? generateFallbackId(rawBody));
 
-      res.status(200).json({ ok: true }); // Acknowledge immediately
-
-      // Process async — don't block the response
-      setImmediate(() => {
-        void processDeposit({
-          provider: 'BLOCKCYPHER',
-          eventId,
-          rawPayload: payload,
-        });
-      });
-    } catch (err) {
-      logger.error({ err }, 'BlockCypher webhook handler error');
-      res.status(500).json({ error: 'Internal error' });
-    }
-  });
-
-  // ---- Alchemy (ETH / ERC-20) --------------------------------------------
-  app.post('/webhooks/alchemy', async (req: Request, res: Response) => {
-    try {
-      const rawBody = req.body as Buffer;
-
-      if (!verifyAlchemySignature(rawBody, req.headers)) {
-        logger.warn('Alchemy webhook: invalid signature');
-        res.status(401).json({ error: 'Invalid signature' });
-        return;
-      }
-
-      const payload = JSON.parse(rawBody.toString('utf8')) as Record<string, unknown>;
-      const eventId = String(
-        (payload['id'] as string | undefined) ??
-        ((payload['event'] as Record<string, unknown> | undefined)?.['transaction'] as Record<string, unknown> | undefined)?.['hash'] ??
-        generateFallbackId(rawBody),
+      // NOWNodes address-activity event — extract tx hash as event ID
+      const txId = String(
+        payload['txid'] ?? payload['hash'] ?? payload['tx'] ?? generateFallbackId(rawBody),
       );
 
+      // Acknowledge immediately — process async
       res.status(200).json({ ok: true });
 
       setImmediate(() => {
         void processDeposit({
-          provider: 'ALCHEMY',
-          eventId,
+          provider:   'BLOCKCYPHER',   // reuse BLOCKCYPHER parser — same UTXO format
+          eventId:    txId,
           rawPayload: payload,
         });
       });
     } catch (err) {
-      logger.error({ err }, 'Alchemy webhook handler error');
+      logger.error({ err }, 'NOWNodes webhook error');
       res.status(500).json({ error: 'Internal error' });
     }
   });
 
-  // ---- Helius (SOL / SPL) -------------------------------------------------
-  app.post('/webhooks/helius', async (req: Request, res: Response) => {
-    try {
-      const rawBody = req.body as Buffer;
-
-      if (!verifyHeliusSignature(rawBody, req.headers)) {
-        logger.warn('Helius webhook: invalid signature');
-        res.status(401).json({ error: 'Invalid signature' });
-        return;
-      }
-
-      const payload = JSON.parse(rawBody.toString('utf8')) as Record<string, unknown>;
-      // Helius sends arrays; wrap single event or iterate
-      const events = Array.isArray(payload) ? payload as Record<string, unknown>[] : [payload];
-
-      res.status(200).json({ ok: true });
-
-      for (const event of events) {
-        const eventId = String(event['signature'] ?? generateFallbackId(Buffer.from(JSON.stringify(event))));
-        setImmediate(() => {
-          void processDeposit({
-            provider: 'HELIUS',
-            eventId,
-            rawPayload: event,
-          });
-        });
-      }
-    } catch (err) {
-      logger.error({ err }, 'Helius webhook handler error');
-      res.status(500).json({ error: 'Internal error' });
-    }
-  });
-
-  // ---- Health check -------------------------------------------------------
+  // ── Health check ──────────────────────────────────────────────────────
   app.get('/health', async (_req: Request, res: Response) => {
     try {
-      const { getHealthStatus } = await import('./healthCheck');
       const status = await getHealthStatus();
       res.status(status.status === 'unhealthy' ? 503 : 200).json(status);
     } catch {
-      res.status(200).json({ status: 'ok', service: 'rapidex-webhooks' });
+      res.json({ status: 'ok' });
     }
+  });
+
+  // ── Admin Dashboard ───────────────────────────────────────────────────
+  app.use('/dashboard', dashboardRouter);
+
+  // Root redirect to dashboard
+  app.get('/', (_req: Request, res: Response) => {
+    res.redirect('/dashboard/');
   });
 
   return app;
 }
 
 export function startWebhookServer(): void {
-  const app = createWebhookApp();
+  const app  = createWebhookApp();
   const port = config.WEBHOOK_PORT;
 
   app.listen(port, () => {
-    logger.info({ port }, 'Webhook server listening');
+    logger.info({ port }, `HTTP server listening — dashboard: http://localhost:${port}/dashboard/`);
   });
 }
 
 // ---------------------------------------------------------------------------
-// Signature verification
+// Signature helpers
 // ---------------------------------------------------------------------------
 
-function verifyBlockcypherSignature(body: Buffer, headers: Record<string, unknown>): boolean {
-  // BlockCypher sends X-EventToken header containing the token
-  const token = headers['x-eventtoken'] as string | undefined;
-  if (!token) return false;
-  // BlockCypher uses a shared token — compare with configured secret
-  try {
-    return timingSafeEqual(
-      Buffer.from(token),
-      Buffer.from(config.BLOCKCYPHER_WEBHOOK_SECRET),
-    );
-  } catch {
-    return false;
+function verifyNowNodesSignature(body: Buffer, headers: Record<string, unknown>): boolean {
+  // Try HMAC-SHA256 header first
+  const sig = headers['x-nownodes-signature'] as string | undefined;
+  if (sig) {
+    const expected = createHmac('sha256', config.WEBHOOK_SECRET).update(body).digest('hex');
+    try {
+      return timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+    } catch {
+      return false;
+    }
   }
-}
 
-function verifyAlchemySignature(body: Buffer, headers: Record<string, unknown>): boolean {
-  // Alchemy signs with HMAC-SHA256 using the signing key
-  const signature = headers['x-alchemy-signature'] as string | undefined;
-  if (!signature) return false;
-
-  const hmac = createHmac('sha256', config.ALCHEMY_WEBHOOK_AUTH_TOKEN);
-  hmac.update(body);
-  const expected = hmac.digest('hex');
-
-  try {
-    return timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
-  } catch {
-    return false;
-  }
-}
-
-function verifyHeliusSignature(body: Buffer, headers: Record<string, unknown>): boolean {
-  // Helius uses the authorization header with the webhook secret
+  // Fallback: Bearer token in Authorization header
   const auth = headers['authorization'] as string | undefined;
-  if (!auth) return false;
-
-  try {
-    return timingSafeEqual(
-      Buffer.from(auth),
-      Buffer.from(config.HELIUS_WEBHOOK_SECRET),
-    );
-  } catch {
-    return false;
+  if (auth?.startsWith('Bearer ')) {
+    try {
+      return timingSafeEqual(
+        Buffer.from(auth.slice(7)),
+        Buffer.from(config.WEBHOOK_SECRET),
+      );
+    } catch {
+      return false;
+    }
   }
+
+  // If no signature at all, reject in production
+  return config.NODE_ENV !== 'production';
 }
 
 function generateFallbackId(body: Buffer): string {
