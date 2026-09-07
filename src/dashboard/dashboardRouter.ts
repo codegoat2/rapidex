@@ -21,6 +21,9 @@ const router = Router();
 
 const SESSION_COOKIE = 'rdx_session';
 const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_ATTEMPTS = 5;
+const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 
 function signToken(ts: number): string {
   return createHmac('sha256', config.DASHBOARD_SECRET).update(String(ts)).digest('hex');
@@ -67,6 +70,14 @@ router.get('/login', (_req: Request, res: Response) => {
 });
 
 router.post('/login', (req: Request, res: Response) => {
+  const key = req.ip ?? 'unknown';
+  const now = Date.now();
+  const record = loginAttempts.get(key);
+  if (record && record.resetAt > now && record.count >= LOGIN_MAX_ATTEMPTS) {
+    res.status(429).send(renderLoginPage('Too many attempts. Try again later.'));
+    return;
+  }
+
   const { password } = req.body as { password?: string };
   try {
     const matches = timingSafeEqual(
@@ -74,13 +85,20 @@ router.post('/login', (req: Request, res: Response) => {
       Buffer.from(config.DASHBOARD_SECRET),
     );
     if (!matches) {
+      loginAttempts.set(key, record && record.resetAt > now
+        ? { count: record.count + 1, resetAt: record.resetAt }
+        : { count: 1, resetAt: now + LOGIN_WINDOW_MS });
       res.send(renderLoginPage('Invalid password'));
       return;
     }
   } catch {
+    loginAttempts.set(key, record && record.resetAt > now
+      ? { count: record.count + 1, resetAt: record.resetAt }
+      : { count: 1, resetAt: now + LOGIN_WINDOW_MS });
     res.send(renderLoginPage('Invalid password'));
     return;
   }
+  loginAttempts.delete(key);
   setSessionCookie(res);
   res.redirect('/dashboard/');
 });

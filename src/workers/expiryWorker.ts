@@ -17,8 +17,9 @@ import cron from 'node-cron';
 import { db } from '../db/client';
 import { logger } from '../utils/logger';
 import { config } from '../config/env';
+import { getSettingNumber } from '../admin/settingsService';
 import { transitionTrade } from '../engine/tradeService';
-import { releaseEscrow } from '../ledger/ledgerService';
+import { cancelTradeAndReleaseEscrow } from '../ledger/ledgerService';
 import { escrowReleaseKey } from '../security/idempotency';
 import type { DbTrade } from '../types';
 
@@ -54,6 +55,7 @@ async function runExpiryCheck(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function expireOpenTrades(now: Date): Promise<void> {
+  const openTimeout = await getSettingNumber('TIMEOUT_OPEN_MINUTES', config.TIMEOUT_OPEN_MINUTES);
   const trades = await db<DbTrade[]>`
     SELECT * FROM trades
     WHERE status = 'OPEN'
@@ -67,7 +69,7 @@ async function expireOpenTrades(now: Date): Promise<void> {
         tradeId:        trade.id,
         to:             'EXPIRED',
         actorDiscordId: 'SYSTEM',
-        note:           `Auto-expired after ${config.TIMEOUT_OPEN_MINUTES} minutes unclaimed`,
+        note:           `Auto-expired after ${openTimeout} minutes unclaimed`,
       });
 
       log.info({ tradeId: trade.id }, 'Trade expired (unclaimed)');
@@ -85,8 +87,9 @@ async function expireOpenTrades(now: Date): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function cancelStaleClaimed(now: Date): Promise<void> {
+  const claimedTimeout = await getSettingNumber('TIMEOUT_CLAIMED_MINUTES', config.TIMEOUT_CLAIMED_MINUTES);
   const cutoff = new Date(
-    now.getTime() - config.TIMEOUT_CLAIMED_MINUTES * 60 * 1000,
+    now.getTime() - claimedTimeout * 60 * 1000,
   );
 
   const trades = await db<DbTrade[]>`
@@ -98,23 +101,17 @@ async function cancelStaleClaimed(now: Date): Promise<void> {
 
   for (const trade of trades) {
     try {
-      // Release escrow back to exchanger
       if (trade.exchanger_id) {
-        await releaseEscrow({
+        await cancelTradeAndReleaseEscrow({
           exchangerId:    trade.exchanger_id,
           tradeId:        trade.id,
           asset:          trade.asset,
           amount:         trade.amount,
           idempotencyKey: escrowReleaseKey(trade.id, 'CANCEL'),
+          actorDiscordId: 'SYSTEM',
+          note: `Auto-cancelled: user did not send fiat within ${claimedTimeout} minutes`,
         });
       }
-
-      await transitionTrade({
-        tradeId:        trade.id,
-        to:             'CANCELLED',
-        actorDiscordId: 'SYSTEM',
-        note:           `Auto-cancelled: user did not send fiat within ${config.TIMEOUT_CLAIMED_MINUTES} minutes`,
-      });
 
       log.info({ tradeId: trade.id }, 'Trade cancelled (fiat not sent)');
 
@@ -131,18 +128,17 @@ async function cancelStaleClaimed(now: Date): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function escalateStaleFiatSent(now: Date): Promise<void> {
+  const fiatSentTimeout = await getSettingNumber('TIMEOUT_FIAT_SENT_MINUTES', config.TIMEOUT_FIAT_SENT_MINUTES);
   const cutoff = new Date(
-    now.getTime() - config.TIMEOUT_FIAT_SENT_MINUTES * 60 * 1000,
+    now.getTime() - fiatSentTimeout * 60 * 1000,
   );
 
-  const trades = await db<(DbTrade & { escalated_at: Date | null })[`${string}`] extends never
-    ? DbTrade[]
-    : DbTrade[]>`
+  const trades = await db<DbTrade[]>`
     SELECT t.*
     FROM trades t
     WHERE t.status = 'FIAT_SENT'
       AND t.updated_at < ${cutoff.toISOString()}
-  ` as DbTrade[];
+  `;
 
   for (const trade of trades) {
     try {
@@ -164,7 +160,7 @@ async function escalateStaleFiatSent(now: Date): Promise<void> {
       log.warn({ tradeId: trade.id }, 'Escalating stale FIAT_SENT trade to admin');
       await sendAdminEscalation(
         trade,
-        `⚠️ **Escalation** — Exchanger has not released crypto on trade \`${trade.id}\` for over ${config.TIMEOUT_FIAT_SENT_MINUTES} minutes.\nUser: <@${trade.user_discord_id}>`,
+        `⚠️ **Escalation** — Exchanger has not released crypto on trade \`${trade.id}\` for over ${fiatSentTimeout} minutes.\nUser: <@${trade.user_discord_id}>`,
       );
     } catch (err) {
       log.error({ err, tradeId: trade.id }, 'Failed to escalate FIAT_SENT trade');
@@ -177,8 +173,9 @@ async function escalateStaleFiatSent(now: Date): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function escalateStaleDisputed(now: Date): Promise<void> {
+  const disputedTimeout = await getSettingNumber('TIMEOUT_DISPUTED_HOURS', config.TIMEOUT_DISPUTED_HOURS);
   const cutoff = new Date(
-    now.getTime() - config.TIMEOUT_DISPUTED_HOURS * 60 * 60 * 1000,
+    now.getTime() - disputedTimeout * 60 * 60 * 1000,
   );
 
   const trades = await db<DbTrade[]>`
@@ -205,7 +202,7 @@ async function escalateStaleDisputed(now: Date): Promise<void> {
       log.warn({ tradeId: trade.id }, 'Second escalation for stale disputed trade');
       await sendAdminEscalation(
         trade,
-        `🚨 **Second Escalation** — Trade \`${trade.id}\` has been DISPUTED for over ${config.TIMEOUT_DISPUTED_HOURS} hours with no resolution.\nImmediate admin action required.`,
+        `🚨 **Second Escalation** — Trade \`${trade.id}\` has been DISPUTED for over ${disputedTimeout} hours with no resolution.\nImmediate admin action required.`,
       );
     } catch (err) {
       log.error({ err, tradeId: trade.id }, 'Failed to escalate disputed trade');
@@ -235,9 +232,9 @@ async function archiveChannel(trade: DbTrade): Promise<void> {
       ],
     });
 
-    await (channel as import('discord.js').TextChannel).permissionOverwrites.set([
+    await (channel as import('discord.js').GuildChannel).permissionOverwrites.set([
       {
-        id: channel.guild.id,
+        id: (channel as import('discord.js').GuildChannel).guild.id,
         deny: [(await import('discord.js')).PermissionFlagsBits.SendMessages],
       },
     ]);

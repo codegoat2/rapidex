@@ -1,15 +1,9 @@
 /**
- * On-Chain Transaction Engine
+ * On-Chain Transaction Engine — NOWNodes provider
  *
- * Sends crypto from the exchanger's deposit address to the user's wallet.
- * Handles BTC, LTC (via BlockCypher), ETH/ERC-20 (via Alchemy/ethers.js),
- * SOL/SPL (via Helius/@solana/web3.js).
- *
- * After sending:
- *   1. Updates trade with tx_id → CRYPTO_SENT
- *   2. Writes WITHDRAWAL ledger entry
- *   3. Notifies Discord channel with explorer link
- *   4. Waits for confirmations → COMPLETED
+ * BTC/LTC: NOWNodes Blockbook REST API (UTXO + broadcast)
+ * ETH/ERC-20: NOWNodes ETH JSON-RPC + ethers.js
+ * SOL/SPL: NOWNodes Solana JSON-RPC + @solana/web3.js
  */
 
 import axios from 'axios';
@@ -18,12 +12,8 @@ import { ECPairFactory } from 'ecpair';
 import * as ecc from 'tiny-secp256k1';
 import { ethers } from 'ethers';
 import {
-  Connection,
-  PublicKey,
-  Transaction,
-  SystemProgram,
+  Connection, PublicKey, Transaction,
   sendAndConfirmTransaction,
-  LAMPORTS_PER_SOL,
 } from '@solana/web3.js';
 import {
   getOrCreateAssociatedTokenAccount,
@@ -31,43 +21,33 @@ import {
   getMint,
 } from '@solana/spl-token';
 import { config } from '../config/env';
+import { rpcUrl, blockbookUrl, blockbookHeaders, ERC20_CONTRACTS, USDC_MINT } from '../config/nownodes';
 import { logger } from '../utils/logger';
 import { rederivePrivateKey, rederiveSolKeypair } from '../wallet/hdWallet';
 import { getDerivationPath } from '../wallet/addressService';
 import { recordWithdrawal } from '../ledger/ledgerService';
-import { withdrawalKey } from '../security/idempotency';
-import { transitionTrade } from './tradeService';
+import { recordFee } from '../ledger/ledgerService';
+import { feeKey, withdrawalKey } from '../security/idempotency';
+import { db } from '../db/client';
+import { getTradeById, transitionTrade } from './tradeService';
 import type { DbTrade, Asset } from '../types';
 
 const ECPair = ECPairFactory(ecc);
 
 // ---------------------------------------------------------------------------
-// Explorer link helpers
+// Explorer links
 // ---------------------------------------------------------------------------
 
 function explorerLink(asset: Asset, txId: string): string {
-  const testnet = config.NETWORK === 'testnet';
+  const t = config.NETWORK === 'testnet';
   switch (asset) {
-    case 'BTC':
-      return testnet
-        ? `https://live.blockcypher.com/btc-testnet/tx/${txId}/`
-        : `https://blockstream.info/tx/${txId}`;
-    case 'LTC':
-      return testnet
-        ? `https://live.blockcypher.com/ltc-testnet/tx/${txId}/`
-        : `https://blockchair.com/litecoin/transaction/${txId}`;
+    case 'BTC':        return t ? `https://live.blockcypher.com/btc-testnet/tx/${txId}/` : `https://blockstream.info/tx/${txId}`;
+    case 'LTC':        return `https://blockchair.com/litecoin/transaction/${txId}`;
     case 'ETH':
     case 'USDT_ERC20':
-    case 'USDC_ERC20':
-      return testnet
-        ? `https://sepolia.etherscan.io/tx/${txId}`
-        : `https://etherscan.io/tx/${txId}`;
-    case 'USDC_SPL':
-      return testnet
-        ? `https://explorer.solana.com/tx/${txId}?cluster=devnet`
-        : `https://solscan.io/tx/${txId}`;
-    default:
-      return txId;
+    case 'USDC_ERC20': return t ? `https://sepolia.etherscan.io/tx/${txId}` : `https://etherscan.io/tx/${txId}`;
+    case 'USDC_SPL':   return t ? `https://explorer.solana.com/tx/${txId}?cluster=devnet` : `https://solscan.io/tx/${txId}`;
+    default:           return txId;
   }
 }
 
@@ -80,11 +60,17 @@ export async function sendTradePayment(
   exchangerId: string,
   adminDiscordId?: string,
 ): Promise<void> {
+  const currentTrade = await getTradeById(trade.id);
+  if (!currentTrade) throw new Error(`Trade ${trade.id} not found`);
+  if (currentTrade.status === 'CRYPTO_SENT' || currentTrade.status === 'COMPLETED') return;
+  if (currentTrade.status !== 'RELEASE_PENDING') {
+    throw new Error(`Trade ${trade.id} cannot be paid from status ${currentTrade.status}`);
+  }
+  trade = currentTrade;
+
   const log = logger.child({ tradeId: trade.id, asset: trade.asset });
 
-  if (!trade.user_wallet_address) {
-    throw new Error('No destination wallet address on trade');
-  }
+  if (!trade.user_wallet_address) throw new Error('No destination wallet address on trade');
 
   const derivationPath = await getDerivationPath(exchangerId, trade.asset);
   if (!derivationPath) throw new Error(`No derivation path for ${trade.asset}`);
@@ -92,61 +78,53 @@ export async function sendTradePayment(
   log.info({ amount: trade.amount, to: trade.user_wallet_address }, 'Sending on-chain TX');
 
   let txId: string;
-
   switch (trade.asset) {
-    case 'BTC':
-      txId = await sendBtcLtc(trade, derivationPath, 'bitcoin');
-      break;
-    case 'LTC':
-      txId = await sendBtcLtc(trade, derivationPath, 'litecoin');
-      break;
-    case 'ETH':
-      txId = await sendEth(trade, derivationPath);
-      break;
+    case 'BTC':        txId = await sendBtcLtc(trade, derivationPath, 'bitcoin');  break;
+    case 'LTC':        txId = await sendBtcLtc(trade, derivationPath, 'litecoin'); break;
+    case 'ETH':        txId = await sendEth(trade, derivationPath);                break;
     case 'USDT_ERC20':
-    case 'USDC_ERC20':
-      txId = await sendErc20(trade, derivationPath);
-      break;
-    case 'USDC_SPL':
-      txId = await sendSplUsdc(trade, derivationPath);
-      break;
-    default:
-      throw new Error(`Unsupported asset: ${String(trade.asset)}`);
+    case 'USDC_ERC20': txId = await sendErc20(trade, derivationPath);              break;
+    case 'USDC_SPL':   txId = await sendSplUsdc(trade, derivationPath);            break;
+    default:           throw new Error(`Unsupported asset: ${String(trade.asset)}`);
   }
 
-  log.info({ txId }, 'TX broadcast successfully');
+  log.info({ txId }, 'TX broadcast');
 
-  // Record withdrawal in ledger
   await recordWithdrawal({
-    exchangerId,
-    tradeId:        trade.id,
-    asset:          trade.asset,
-    amount:         trade.amount,
-    txId,
+    exchangerId, tradeId: trade.id, asset: trade.asset,
+    amount: trade.amount, txId,
     idempotencyKey: withdrawalKey(trade.id, txId),
   });
 
-  // Transition → CRYPTO_SENT
+  const [feeConfig] = await db<{ fee_percentage: string; min_fee_amount: string }[]>`
+    SELECT fee_percentage, min_fee_amount FROM fee_config WHERE asset = ${trade.asset}
+  `;
+  if (feeConfig) {
+    const feeAmount = calculateFee(trade.amount, feeConfig.fee_percentage, feeConfig.min_fee_amount);
+    if (feeAmount !== '0') {
+      await recordFee({
+        exchangerId, tradeId: trade.id, asset: trade.asset, amount: feeAmount,
+        idempotencyKey: feeKey(trade.id),
+      });
+    }
+  }
+
   const updated = await transitionTrade({
-    tradeId:        trade.id,
-    to:             'CRYPTO_SENT',
+    tradeId: trade.id, to: 'CRYPTO_SENT',
     actorDiscordId: adminDiscordId ?? 'SYSTEM',
-    note:           `TX broadcast: ${txId}`,
-    updates:        { txId },
+    note: `TX broadcast: ${txId}`, updates: { txId },
   });
 
-  // Notify channel with TX link
   try {
     const { notifyCryptoSent } = await import('../notifications/notificationService');
     await notifyCryptoSent(trade.id, txId, explorerLink(trade.asset, txId));
   } catch { /* non-fatal */ }
 
-  // Wait for confirmations then mark COMPLETED
   void waitForConfirmations(updated, exchangerId, txId);
 }
 
 // ---------------------------------------------------------------------------
-// BTC / LTC send via BlockCypher
+// BTC / LTC — NOWNodes Blockbook
 // ---------------------------------------------------------------------------
 
 async function sendBtcLtc(
@@ -154,51 +132,49 @@ async function sendBtcLtc(
   derivationPath: string,
   chain: 'bitcoin' | 'litecoin',
 ): Promise<string> {
-  const testnet   = config.NETWORK === 'testnet';
-  const coinPath  = chain === 'litecoin' ? (testnet ? 'ltc/test3' : 'ltc/main') : (testnet ? 'btc/test3' : 'btc/main');
-  const network   = getBitcoinNetwork(chain, testnet);
+  const testnet    = config.NETWORK === 'testnet';
+  const network    = getBitcoinNetwork(chain, testnet);
+  const bbUrl      = blockbookUrl(chain === 'bitcoin' ? 'btc' : 'ltc');
+  const headers    = blockbookHeaders();
   const privateKey = rederivePrivateKey(derivationPath);
-  const keyPair   = ECPair.fromPrivateKey(privateKey, { network });
+  const keyPair    = ECPair.fromPrivateKey(privateKey, { network });
 
   const fromAddress = bitcoin.payments.p2wpkh({
-    pubkey: Buffer.from(keyPair.publicKey),
-    network,
+    pubkey: Buffer.from(keyPair.publicKey), network,
   }).address!;
 
-  // Fetch UTXOs
-  const utxoRes = await axios.get<{ txrefs?: Array<{ tx_hash: string; tx_output_n: number; value: number }> }>(
-    `https://api.blockcypher.com/v1/${coinPath}/addrs/${fromAddress}?unspentOnly=true&token=${config.BLOCKCYPHER_TOKEN}`,
-    { timeout: 15000 },
+  // Fetch UTXOs via Blockbook
+  const utxoRes = await axios.get<Array<{ txid: string; vout: number; value: string; confirmations: number }>>(
+    `${bbUrl}/utxo/${fromAddress}`, { headers, timeout: 15000 },
   );
-
-  const utxos = utxoRes.data.txrefs ?? [];
+  const utxos = utxoRes.data ?? [];
   if (utxos.length === 0) throw new Error(`No UTXOs for ${fromAddress}`);
 
-  // Estimate fee
-  const feeRes = await axios.get<{ medium_fee_per_kb: number }>(
-    `https://api.blockcypher.com/v1/${coinPath}`,
-    { timeout: 10000 },
+  // Estimate fee via Blockbook
+  const feeRes = await axios.get<{ result: string }>(
+    `${bbUrl}/estimatefee/3`, { headers, timeout: 10000 },
   );
-  const feePerByte = Math.ceil((feeRes.data.medium_fee_per_kb ?? 20000) / 1024);
+  const feePerKb    = parseFloat(feeRes.data.result ?? '0.0002') * 1e8;
+  const feePerByte  = Math.ceil(feePerKb / 1024);
 
   // Build PSBT
   const psbt = new bitcoin.Psbt({ network });
   let inputTotal = 0;
 
   for (const utxo of utxos) {
+    // Fetch raw tx hex for witness UTXO
     const txRes = await axios.get<{ hex: string }>(
-      `https://api.blockcypher.com/v1/${coinPath}/txs/${utxo.tx_hash}?includeHex=true&token=${config.BLOCKCYPHER_TOKEN}`,
-      { timeout: 10000 },
+      `${bbUrl}/tx-specific/${utxo.txid}`, { headers, timeout: 10000 },
     );
     psbt.addInput({
-      hash:               utxo.tx_hash,
-      index:              utxo.tx_output_n,
-      witnessUtxo:        {
+      hash: utxo.txid, index: utxo.vout,
+      witnessUtxo: {
         script: bitcoin.payments.p2wpkh({ pubkey: Buffer.from(keyPair.publicKey), network }).output!,
-        value:  utxo.value,
+        value: parseInt(utxo.value, 10),
       },
     });
-    inputTotal += utxo.value;
+    inputTotal += parseInt(utxo.value, 10);
+    void txRes; // hex not needed for segwit inputs
   }
 
   const sendSatoshis  = Math.round(parseFloat(trade.amount) * 1e8);
@@ -206,52 +182,45 @@ async function sendBtcLtc(
   const fee           = estimatedSize * feePerByte;
   const change        = inputTotal - sendSatoshis - fee;
 
-  if (change < 0) throw new Error(`Insufficient UTXO funds: have ${inputTotal}, need ${sendSatoshis + fee}`);
+  if (change < 0) throw new Error(`Insufficient UTXOs: have ${inputTotal}, need ${sendSatoshis + fee}`);
 
   psbt.addOutput({ address: trade.user_wallet_address!, value: sendSatoshis });
-  if (change > 546) {
-    psbt.addOutput({ address: fromAddress, value: change }); // change back to exchanger
-  }
+  if (change > 546) psbt.addOutput({ address: fromAddress, value: change });
 
   psbt.signAllInputs(keyPair);
   psbt.finalizeAllInputs();
   const rawHex = psbt.extractTransaction().toHex();
 
-  // Broadcast
-  const broadcastRes = await axios.post<{ tx: { hash: string } }>(
-    `https://api.blockcypher.com/v1/${coinPath}/txs/push`,
-    { tx: rawHex },
-    { timeout: 15000 },
+  // Broadcast via Blockbook
+  const broadcastRes = await axios.post<{ result: string }>(
+    `${bbUrl}/sendtx/`, rawHex,
+    { headers: { ...headers, 'Content-Type': 'text/plain' }, timeout: 15000 },
   );
-
-  return broadcastRes.data.tx.hash;
+  return broadcastRes.data.result;
 }
 
 // ---------------------------------------------------------------------------
-// ETH send via Alchemy + ethers.js
+// ETH — NOWNodes JSON-RPC + ethers.js
 // ---------------------------------------------------------------------------
 
 async function sendEth(trade: DbTrade, derivationPath: string): Promise<string> {
-  const network   = config.NETWORK === 'testnet' ? 'sepolia' : 'homestead';
-  const provider  = new ethers.AlchemyProvider(network, config.ALCHEMY_API_KEY);
+  const provider  = new ethers.JsonRpcProvider(rpcUrl('eth'));
   const privateKey = rederivePrivateKey(derivationPath);
   const wallet    = new ethers.Wallet(privateKey.toString('hex'), provider);
-
-  const value = ethers.parseEther(trade.amount);
-  const feeData = await provider.getFeeData();
+  const value     = ethers.parseEther(trade.amount);
+  const feeData   = await provider.getFeeData();
 
   const tx = await wallet.sendTransaction({
-    to:                 trade.user_wallet_address!,
+    to: trade.user_wallet_address!,
     value,
-    maxFeePerGas:       feeData.maxFeePerGas ?? undefined,
+    maxFeePerGas:         feeData.maxFeePerGas ?? undefined,
     maxPriorityFeePerGas: feeData.maxPriorityFeePerGas ?? undefined,
   });
-
   return tx.hash;
 }
 
 // ---------------------------------------------------------------------------
-// ERC-20 (USDT / USDC) send via Alchemy + ethers.js
+// ERC-20 (USDT / USDC) — NOWNodes JSON-RPC + ethers.js
 // ---------------------------------------------------------------------------
 
 const ERC20_ABI = [
@@ -259,73 +228,43 @@ const ERC20_ABI = [
   'function decimals() view returns (uint8)',
 ];
 
-const ERC20_ADDRESSES: Record<string, Record<string, string>> = {
-  USDT_ERC20: {
-    mainnet: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
-    testnet: '0x7169D38820dfd117C3FA1f22a697dBA58d90BA06', // Sepolia USDT
-  },
-  USDC_ERC20: {
-    mainnet: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
-    testnet: '0x94a9D9AC8a22534E3FaCa9F4e7F2E2cf85d5E4C8', // Sepolia USDC
-  },
-};
-
 async function sendErc20(trade: DbTrade, derivationPath: string): Promise<string> {
-  const networkKey = config.NETWORK === 'testnet' ? 'testnet' : 'mainnet';
-  const network    = config.NETWORK === 'testnet' ? 'sepolia' : 'homestead';
-  const provider   = new ethers.AlchemyProvider(network, config.ALCHEMY_API_KEY);
+  const netKey    = config.NETWORK === 'testnet' ? 'testnet' : 'mainnet';
+  const provider  = new ethers.JsonRpcProvider(rpcUrl('eth'));
   const privateKey = rederivePrivateKey(derivationPath);
-  const wallet     = new ethers.Wallet(privateKey.toString('hex'), provider);
+  const wallet    = new ethers.Wallet(privateKey.toString('hex'), provider);
 
-  const contractAddress = ERC20_ADDRESSES[trade.asset]?.[networkKey];
-  if (!contractAddress) throw new Error(`No ERC-20 address for ${trade.asset} on ${networkKey}`);
+  const contractAddress = ERC20_CONTRACTS[trade.asset]?.[netKey];
+  if (!contractAddress) throw new Error(`No ERC-20 contract for ${trade.asset} on ${netKey}`);
 
-  const contract   = new ethers.Contract(contractAddress, ERC20_ABI, wallet);
-  const decimals   = await contract.decimals() as bigint;
-  const amount     = ethers.parseUnits(trade.amount, decimals);
+  const contract = new ethers.Contract(contractAddress, ERC20_ABI, wallet);
+  const decimals = await contract.decimals() as bigint;
+  const amount   = ethers.parseUnits(trade.amount, decimals);
 
   const tx = await (contract.transfer(trade.user_wallet_address!, amount) as Promise<ethers.ContractTransactionResponse>);
   return tx.hash;
 }
 
 // ---------------------------------------------------------------------------
-// SPL USDC send via Helius + @solana/web3.js
+// SOL/SPL USDC — NOWNodes Solana RPC + @solana/web3.js
 // ---------------------------------------------------------------------------
 
-const USDC_MINT_MAINNET = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
-const USDC_MINT_DEVNET  = new PublicKey('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU');
-
 async function sendSplUsdc(trade: DbTrade, derivationPath: string): Promise<string> {
-  const testnet   = config.NETWORK === 'testnet';
-  const rpcUrl    = config.SOL_RPC_URL ||
-    (testnet
-      ? `https://devnet.helius-rpc.com/?api-key=${config.HELIUS_API_KEY}`
-      : `https://mainnet.helius-rpc.com/?api-key=${config.HELIUS_API_KEY}`);
-
-  const connection = new Connection(rpcUrl, 'confirmed');
+  const testnet    = config.NETWORK === 'testnet';
+  const connection = new Connection(rpcUrl('sol'), 'confirmed');
   const keypair    = rederiveSolKeypair(derivationPath);
-  const mint       = testnet ? USDC_MINT_DEVNET : USDC_MINT_MAINNET;
+  const mintAddr   = testnet ? USDC_MINT.testnet : USDC_MINT.mainnet;
+  const mint       = new PublicKey(mintAddr);
   const mintInfo   = await getMint(connection, mint);
+  const amount     = BigInt(Math.round(parseFloat(trade.amount) * 10 ** mintInfo.decimals));
 
-  const amount = BigInt(
-    Math.round(parseFloat(trade.amount) * 10 ** mintInfo.decimals),
-  );
+  const fromAta = await getOrCreateAssociatedTokenAccount(connection, keypair, mint, keypair.publicKey);
+  const toAta   = await getOrCreateAssociatedTokenAccount(connection, keypair, mint, new PublicKey(trade.user_wallet_address!));
 
-  const fromAta = await getOrCreateAssociatedTokenAccount(
-    connection, keypair, mint, keypair.publicKey,
-  );
-  const toAta = await getOrCreateAssociatedTokenAccount(
-    connection, keypair, mint, new PublicKey(trade.user_wallet_address!),
-  );
-
-  const tx = new Transaction().add(
+  const tx  = new Transaction().add(
     createTransferInstruction(fromAta.address, toAta.address, keypair.publicKey, amount),
   );
-
-  const sig = await sendAndConfirmTransaction(connection, tx, [keypair], {
-    commitment: 'confirmed',
-  });
-
+  const sig = await sendAndConfirmTransaction(connection, tx, [keypair], { commitment: 'confirmed' });
   return sig;
 }
 
@@ -333,67 +272,54 @@ async function sendSplUsdc(trade: DbTrade, derivationPath: string): Promise<stri
 // Confirmation tracking
 // ---------------------------------------------------------------------------
 
-async function waitForConfirmations(
-  trade: DbTrade,
-  _exchangerId: string,
-  txId: string,
-): Promise<void> {
-  const requiredConfs = config.TIMEOUT_CRYPTO_SENT_CONFIRMATIONS;
-  const log = logger.child({ tradeId: trade.id, txId });
+async function waitForConfirmations(trade: DbTrade, _exchangerId: string, txId: string): Promise<void> {
+  const required = config.TIMEOUT_CRYPTO_SENT_CONFIRMATIONS;
+  const log      = logger.child({ tradeId: trade.id, txId });
+  const max      = 240;
+  let attempts   = 0;
 
-  // Poll every 30 seconds for up to 2 hours
-  const maxAttempts = 240;
-  let attempts = 0;
-
-  while (attempts < maxAttempts) {
+  while (attempts < max) {
     await sleep(30_000);
     attempts++;
-
     try {
       const confs = await getConfirmations(trade.asset, txId);
-      log.debug({ confs, required: requiredConfs }, 'Checking confirmations');
-
-      if (confs >= requiredConfs) {
+      log.debug({ confs, required }, 'Checking confirmations');
+      if (confs >= required) {
         await transitionTrade({
-          tradeId:        trade.id,
-          to:             'COMPLETED',
+          tradeId: trade.id, to: 'COMPLETED',
           actorDiscordId: 'SYSTEM',
-          note:           `${confs} confirmations received`,
-          updates:        { completedAt: new Date() },
+          note: `${confs} confirmations received`,
+          updates: { completedAt: new Date() },
         });
-
         try {
           const { notifyTradeCompleted } = await import('../notifications/notificationService');
           await notifyTradeCompleted(trade.id);
         } catch { /* non-fatal */ }
-
-        log.info('Trade completed — confirmations received');
+        log.info('Trade completed');
         return;
       }
     } catch (err) {
-      log.warn({ err }, 'Failed to check confirmations — will retry');
+      log.warn({ err }, 'Confirmation check failed — retrying');
     }
   }
 
-  // Timeout — alert admin
-  log.error('Confirmation wait timed out');
+  log.error('Confirmation timeout');
   try {
     const { sendAdminAlert } = await import('../notifications/notificationService');
-    await sendAdminAlert(`⚠️ Confirmation timeout for trade \`${trade.id}\` TX \`${txId}\``);
+    await sendAdminAlert(`⚠️ Confirmation timeout trade \`${trade.id}\` TX \`${txId}\``);
   } catch { /* non-fatal */ }
 }
 
 async function getConfirmations(asset: Asset, txId: string): Promise<number> {
   if (asset === 'BTC' || asset === 'LTC') {
-    const coin = asset === 'LTC' ? 'ltc/main' : 'btc/main';
+    const chain = asset === 'LTC' ? 'ltc' : 'btc';
     const res = await axios.get<{ confirmations?: number }>(
-      `https://api.blockcypher.com/v1/${coin}/txs/${txId}?token=${config.BLOCKCYPHER_TOKEN}`,
-      { timeout: 10000 },
+      `${blockbookUrl(chain)}/tx/${txId}`,
+      { headers: blockbookHeaders(), timeout: 10000 },
     );
     return res.data.confirmations ?? 0;
   }
-  // ETH/ERC-20 and SOL are considered confirmed after broadcast
-  return config.TIMEOUT_CRYPTO_SENT_CONFIRMATIONS;
+  return config.TIMEOUT_CRYPTO_SENT_CONFIRMATIONS; // ETH/SOL confirmed after broadcast
 }
 
 // ---------------------------------------------------------------------------
@@ -409,6 +335,13 @@ function getBitcoinNetwork(chain: 'bitcoin' | 'litecoin', testnet: boolean): bit
   return testnet ? bitcoin.networks.testnet : bitcoin.networks.bitcoin;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
+function sleep(ms: number): Promise<void> { return new Promise((r) => setTimeout(r, ms)); }
+
+function calculateFee(amount: string, percentage: string, minimum: string): string {
+  const amountUnits = ethers.parseUnits(amount, 18);
+  const percentageUnits = ethers.parseUnits(percentage, 4);
+  const minimumUnits = ethers.parseUnits(minimum, 18);
+  const feeUnits = amountUnits * percentageUnits / (100n * 10_000n);
+  const result = feeUnits > minimumUnits ? feeUnits : minimumUnits;
+  return ethers.formatUnits(result, 18);
 }

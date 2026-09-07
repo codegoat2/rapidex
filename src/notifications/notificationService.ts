@@ -193,12 +193,15 @@ export async function notifyDepositCredited(
 
 export async function sendAdminAlert(message: string): Promise<void> {
   try {
-    const client  = getDiscordClient();
-    const channel = client.channels.cache.get(config.CHANNEL_ADMIN_ALERTS) as TextChannel | undefined;
-    if (!channel) {
-      logger.warn({ channelId: config.CHANNEL_ADMIN_ALERTS }, 'Admin alerts channel not found');
+    const { getChannelAdminAlerts } = await import('../config/runtimeConfig');
+    const channelId = await getChannelAdminAlerts();
+    if (!channelId) {
+      logger.warn({}, 'CHANNEL_ADMIN_ALERTS not configured — set it in dashboard Settings');
       return;
     }
+    const client  = getDiscordClient();
+    const channel = client.channels.cache.get(channelId) as TextChannel | undefined;
+    if (!channel) return;
     await channel.send({
       embeds: [
         new EmbedBuilder()

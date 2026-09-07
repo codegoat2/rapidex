@@ -65,7 +65,7 @@ function getMasterSeed(): Buffer {
   if (!bip39.validateMnemonic(mnemonic)) {
     throw new Error('MASTER_WALLET_MNEMONIC is not a valid BIP39 mnemonic');
   }
-  _masterSeed = bip39.mnemonicToSeedSync(mnemonic);
+  _masterSeed = Buffer.from((bip39 as any).mnemonicToSeedSync(mnemonic));
   logger.info('HD wallet master seed loaded');
   return _masterSeed;
 }
@@ -175,7 +175,7 @@ export function deriveEthAddress(accountIndex: number, asset: 'ETH' | 'USDT_ERC2
  * Derives a Solana address (also used for SPL tokens: USDC).
  * Solana uses ed25519 — derived via ed25519-hd-key.
  */
-export function deriveSolAddress(accountIndex: number, asset: 'USDC_SPL' | 'SOL' = 'USDC_SPL'): DerivedAddress {
+export function deriveSolAddress(accountIndex: number, asset: 'USDC_SPL' = 'USDC_SPL'): DerivedAddress {
   const path = `m/44'/501'/${accountIndex}'/0'`;
   const seed = getMasterSeed();
 

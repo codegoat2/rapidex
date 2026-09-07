@@ -12,6 +12,7 @@ import {
 import { requirePermission } from '../../security/rbac';
 import { verifyExchanger } from '../../admin/exchangerService';
 import { COLORS } from '../embeds/colors';
+import { getRoleExchanger } from '../../config/runtimeConfig';
 
 export const data = new SlashCommandBuilder()
   .setName('verify-exchanger')
@@ -40,9 +41,9 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
   });
 
   // Assign exchanger role
-  const { config } = await import('../../config/env');
   try {
-    await member.roles.add(config.ROLE_EXCHANGER);
+    const roleId = await getRoleExchanger();
+    if (roleId) await member.roles.add(roleId);
   } catch {
     // Role assignment may fail if bot lacks permission — warn but don't block
   }

@@ -228,6 +228,12 @@ const page   = $('page');
 const topbar = $('topbar-title');
 const actions= $('topbar-actions');
 
+function esc(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({
+    '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+  }[char]));
+}
+
 function toast(msg, type='info') {
   const el = document.createElement('div');
   el.className = 'toast toast-'+type;
@@ -248,7 +254,8 @@ async function api(path, opts={}) {
 
 function badge(val, map) {
   const cls = map ? map[val] : val;
-  return '<span class="badge badge-'+String(val).toLowerCase().replace(' ','-')+'">'+val+'</span>';
+  const safeClass = String(cls ?? '').toLowerCase().replace(/[^a-z0-9_-]/g,'-');
+  return '<span class="badge badge-'+safeClass+'">'+esc(val)+'</span>';
 }
 
 function ts(d) {
@@ -274,8 +281,8 @@ function pager(current, total, limit, cb) {
   const pages = Math.ceil(total/limit);
   if(pages<=1) return '';
   let html='<div class="pagination"><span style="color:var(--muted);font-size:12px">Page '+(current+1)+' of '+pages+'</span>';
-  if(current>0) html+='<button class="btn btn-ghost btn-sm" onclick="('+cb+')('+（current-1)+')">← Prev</button>';
-  if(current<pages-1) html+='<button class="btn btn-ghost btn-sm" onclick="('+cb+')('+（current+1)+')">Next →</button>';
+  if(current>0) html+='<button class="btn btn-ghost btn-sm" onclick="('+cb+')('+(current-1)+')">← Prev</button>';
+  if(current<pages-1) html+='<button class="btn btn-ghost btn-sm" onclick="('+cb+')('+(current+1)+')">Next →</button>';
   return html+'</div>';
 }
 
@@ -342,9 +349,9 @@ async function loadOverview() {
         <thead><tr><th>ID</th><th>User</th><th>Asset</th><th>Amount</th><th>Status</th><th>Created</th></tr></thead>
         <tbody>
         \${d.recentTrades.map(t=>\`<tr>
-          <td><span class="mono truncate" style="max-width:80px">\${t.id.slice(0,8)}…</span></td>
-          <td><span class="mono">\${t.user_discord_id}</span></td>
-          <td><strong>\${t.asset}</strong></td>
+          <td><span class="mono truncate" style="max-width:80px">\${esc(t.id.slice(0,8))}…</span></td>
+          <td><span class="mono">\${esc(t.user_discord_id)}</span></td>
+          <td><strong>\${esc(t.asset)}</strong></td>
           <td class="mono">\${num(t.amount)}</td>
           <td>\${badge(t.status)}</td>
           <td>\${ts(t.created_at)}</td>
@@ -384,16 +391,16 @@ async function loadTrades(p=0) {
         <thead><tr><th>ID</th><th>User</th><th>Exchanger</th><th>Asset</th><th>Amount</th><th>Fiat</th><th>Direction</th><th>Status</th><th>Created</th><th></th></tr></thead>
         <tbody>
         \${d.trades.map(t=>\`<tr>
-          <td><span class="mono">\${t.id.slice(0,8)}…</span></td>
-          <td><span class="mono">\${t.user_discord_id}</span></td>
-          <td><span class="mono">\${t.exchanger_id?t.exchanger_id.slice(0,8)+'…':'—'}</span></td>
-          <td><strong>\${t.asset}</strong></td>
+          <td><span class="mono">\${esc(t.id.slice(0,8))}…</span></td>
+          <td><span class="mono">\${esc(t.user_discord_id)}</span></td>
+          <td><span class="mono">\${t.exchanger_id?esc(t.exchanger_id.slice(0,8))+'…':'—'}</span></td>
+          <td><strong>\${esc(t.asset)}</strong></td>
           <td class="mono">\${num(t.amount)}</td>
-          <td>\${t.fiat_currency} / \${t.fiat_method.replace(/_/g,' ')}</td>
+          <td>\${esc(t.fiat_currency)} / \${esc(t.fiat_method.replace(/_/g,' '))}</td>
           <td>\${t.direction==='BUY'?'🟢 Buy':'🔴 Sell'}</td>
           <td>\${badge(t.status)}</td>
           <td>\${ts(t.created_at)}</td>
-          <td><button class="btn btn-ghost btn-sm" onclick="loadTradeDetail('\${t.id}')">View</button></td>
+          <td><button class="btn btn-ghost btn-sm" onclick="loadTradeDetail('\${esc(t.id)}')">View</button></td>
         </tr>\`).join('') || '<tr><td colspan="10">'+empty('No trades')+'</td></tr>'}
         </tbody>
       </table>
@@ -407,7 +414,7 @@ async function loadTradeDetail(id) {
   const d = await api('/trades/'+id);
   const t = d.trade;
   modal(\`
-  <h3>💱 Trade \${t.id.slice(0,8)}…</h3>
+  <h3>💱 Trade \${esc(t.id.slice(0,8))}…</h3>
   <div class="form-grid">
     \${[['ID',t.id],['Status',badge(t.status)],['User',t.user_discord_id],
        ['Exchanger',t.exchanger_id||'—'],['Asset',t.asset],['Amount',num(t.amount)],
@@ -416,16 +423,16 @@ async function loadTradeDetail(id) {
        ['Created',ts(t.created_at)],['Updated',ts(t.updated_at)]
     ].map(([l,v])=>\`<div style="display:flex;justify-content:space-between;padding:7px 0;
       border-bottom:1px solid var(--border);font-size:13px">
-      <span style="color:var(--muted)">\${l}</span><span>\${v}</span></div>\`).join('')}
+      <span style="color:var(--muted)">\${esc(l)}</span><span>\${typeof v==='string' ? esc(v) : v}</span></div>\`).join('')}
   </div>
   <hr>
   <div class="card-title" style="margin-top:0">State History</div>
   <div style="font-size:12px">
     \${d.logs.map(l=>\`<div style="padding:5px 0;display:flex;gap:12px;border-bottom:1px solid rgba(45,49,84,.3)">
       <span style="color:var(--muted);white-space:nowrap">\${ts(l.created_at)}</span>
-      <span>\${l.from_status||'—'} → <strong>\${l.to_status}</strong></span>
-      <span style="color:var(--muted)">\${l.actor_discord_id}</span>
-      \${l.note?'<span style="color:var(--subtle)">'+l.note+'</span>':''}
+      <span>\${esc(l.from_status||'—')} → <strong>\${esc(l.to_status)}</strong></span>
+      <span style="color:var(--muted)">\${esc(l.actor_discord_id)}</span>
+      \${l.note?'<span style="color:var(--subtle)">'+esc(l.note)+'</span>':''}
     </div>\`).join('')}
   </div>
   <div class="modal-footer"><button class="btn btn-ghost" onclick="closeModal()">Close</button></div>
@@ -448,14 +455,14 @@ async function loadExchangers() {
         <thead><tr><th>Username</th><th>Discord ID</th><th>Status</th><th>Verified By</th><th>Verified At</th><th></th></tr></thead>
         <tbody>
         \${exchangers.map(e=>\`<tr>
-          <td><strong>\${e.discord_username}</strong></td>
-          <td class="mono">\${e.discord_id}</td>
+          <td><strong>\${esc(e.discord_username)}</strong></td>
+          <td class="mono">\${esc(e.discord_id)}</td>
           <td>\${badge(e.is_banned?'BANNED':e.is_active?'ACTIVE':'INACTIVE')}</td>
-          <td class="mono">\${e.verified_by_discord_id}</td>
+          <td class="mono">\${esc(e.verified_by_discord_id)}</td>
           <td>\${ts(e.verified_at)}</td>
           <td style="display:flex;gap:6px">
-            <button class="btn btn-ghost btn-sm" onclick="loadExchangerDetail('\${e.id}')">View</button>
-            \${!e.is_banned?'<button class="btn btn-danger btn-sm" onclick="openBanModal(\\'\${e.discord_id}\\',\\'\${e.discord_username}\\')">Ban</button>':''}
+            <button class="btn btn-ghost btn-sm" onclick="loadExchangerDetail('\${esc(e.id)}')">View</button>
+            \${!e.is_banned?'<button class="btn btn-danger btn-sm" onclick="openBanModal(\\'\${esc(e.discord_id)}\\',\\'\${esc(e.discord_username)}\\')">Ban</button>':''}
           </td>
         </tr>\`).join('') || '<tr><td colspan="6">'+empty('No exchangers')+'</td></tr>'}
         </tbody>
@@ -470,13 +477,13 @@ async function loadExchangerDetail(id) {
   const e = d.exchanger;
   const bals = Object.values(d.balances).filter(b=>parseFloat(b.available)>0||parseFloat(b.escrow)>0);
   modal(\`
-  <h3>👤 \${e.discord_username}</h3>
+  <h3>👤 \${esc(e.discord_username)}</h3>
   <div style="font-size:12px;margin-bottom:16px">
     \${[['ID',e.id],['Discord ID',e.discord_id],['Status',badge(e.is_banned?'BANNED':'ACTIVE')],
        ['Verified',ts(e.verified_at)],['Ban reason',e.ban_reason||'—']
     ].map(([l,v])=>\`<div style="display:flex;justify-content:space-between;padding:6px 0;
       border-bottom:1px solid var(--border)">
-      <span style="color:var(--muted)">\${l}</span><span>\${v}</span></div>\`).join('')}
+      <span style="color:var(--muted)">\${esc(l)}</span><span>\${typeof v==='string' ? esc(v) : v}</span></div>\`).join('')}
   </div>
   <div class="card-title">💰 Balances</div>
   \${bals.length===0?'<p style="color:var(--muted);font-size:12px">No balances</p>':
@@ -486,7 +493,7 @@ async function loadExchangerDetail(id) {
     </div>\`).join('')}
   <div class="card-title" style="margin-top:16px">🔑 Deposit Addresses</div>
   \${d.addresses.map(a=>\`<div style="padding:5px 0;font-size:11px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between">
-    <strong>\${a.asset}</strong><span class="mono">\${a.address}</span></div>\`).join('')}
+    <strong>\${esc(a.asset)}</strong><span class="mono">\${esc(a.address)}</span></div>\`).join('')}
   <hr>
   <div style="display:flex;gap:10px">
     <button class="btn btn-primary btn-sm" onclick="closeModal();openCreditModal('\${e.id}','\${e.discord_username}')">Credit</button>
@@ -598,13 +605,13 @@ async function loadLedger(p=0) {
         <tbody>
         \${d.entries.map(e=>\`<tr>
           <td style="white-space:nowrap">\${ts(e.created_at)}</td>
-          <td>\${e.discord_username||e.exchanger_id.slice(0,8)}</td>
+          <td>\${esc(e.discord_username||e.exchanger_id.slice(0,8))}</td>
           <td>\${badge(e.type)}</td>
-          <td><strong>\${e.asset}</strong></td>
+          <td><strong>\${esc(e.asset)}</strong></td>
           <td class="mono">\${num(e.amount)}</td>
           <td class="mono">\${num(e.balance_before)}</td>
           <td class="mono">\${num(e.balance_after)}</td>
-          <td class="truncate" style="max-width:200px;font-size:11px;color:var(--subtle)">\${e.reference}</td>
+          <td class="truncate" style="max-width:200px;font-size:11px;color:var(--subtle)">\${esc(e.reference)}</td>
         </tr>\`).join('') || '<tr><td colspan="8">'+empty('No entries')+'</td></tr>'}
         </tbody>
       </table>
@@ -692,9 +699,9 @@ async function loadWebhooks(p=0) {
         \${d.events.map(e=>\`<tr>
           <td>\${ts(e.created_at)}</td>
           <td>\${badge(e.provider)}</td>
-          <td class="mono truncate" style="max-width:200px">\${e.event_id}</td>
+          <td class="mono truncate" style="max-width:200px">\${esc(e.event_id)}</td>
           <td>\${badge(e.processed?'processed':'pending')}</td>
-          <td style="font-size:11px;color:var(--danger)">\${e.error||''}</td>
+          <td style="font-size:11px;color:var(--danger)">\${esc(e.error||'')}</td>
         </tr>\`).join('') || '<tr><td colspan="5">'+empty('No events')+'</td></tr>'}
         </tbody>
       </table>
@@ -728,11 +735,11 @@ async function loadAudit(p=0) {
         <tbody>
         \${d.entries.map(e=>\`<tr>
           <td style="white-space:nowrap">\${ts(e.created_at)}</td>
-          <td class="mono">\${e.actor_discord_id}</td>
-          <td class="mono">\${e.target_discord_id||'—'}</td>
+          <td class="mono">\${esc(e.actor_discord_id)}</td>
+          <td class="mono">\${esc(e.target_discord_id||'—')}</td>
           <td>\${badge(e.action)}</td>
-          <td style="font-size:11px">\${e.entity_type||''} \${e.entity_id?e.entity_id.slice(0,8)+'…':''}</td>
-          <td style="font-size:11px;color:var(--muted)" class="truncate">\${e.metadata?JSON.stringify(e.metadata):''}</td>
+          <td style="font-size:11px">\${esc(e.entity_type||'')} \${e.entity_id?esc(e.entity_id.slice(0,8))+'…':''}</td>
+          <td style="font-size:11px;color:var(--muted)" class="truncate">\${esc(e.metadata?JSON.stringify(e.metadata):'')}</td>
         </tr>\`).join('') || '<tr><td colspan="6">'+empty('No entries')+'</td></tr>'}
         </tbody>
       </table>
@@ -756,11 +763,11 @@ async function loadAddresses() {
         <thead><tr><th>Exchanger</th><th>Asset</th><th>Chain</th><th>Address</th><th>Path</th></tr></thead>
         <tbody>
         \${rows.map(r=>\`<tr>
-          <td>\${r.discord_username||r.exchanger_id.slice(0,8)}</td>
-          <td><strong>\${r.asset}</strong></td>
-          <td>\${r.chain}</td>
-          <td class="mono truncate" style="max-width:260px">\${r.address}</td>
-          <td class="mono" style="font-size:11px;color:var(--muted)">\${r.derivation_path}</td>
+          <td>\${esc(r.discord_username||r.exchanger_id.slice(0,8))}</td>
+          <td><strong>\${esc(r.asset)}</strong></td>
+          <td>\${esc(r.chain)}</td>
+          <td class="mono truncate" style="max-width:260px">\${esc(r.address)}</td>
+          <td class="mono" style="font-size:11px;color:var(--muted)">\${esc(r.derivation_path)}</td>
         </tr>\`).join('') || '<tr><td colspan="5">'+empty()+'</td></tr>'}
         </tbody>
       </table>

@@ -26,9 +26,14 @@
  *   This serialises concurrent operations without application-level locks.
  */
 
+import postgres from 'postgres';
 import { db } from '../db/client';
+import { isTransitionAllowed } from '../engine/tradeService';
 import { logger } from '../utils/logger';
-import type { Asset, LedgerEntryType, DbLedgerEntry } from '../types';
+import type { Asset, LedgerEntryType, DbLedgerEntry, DbTrade } from '../types';
+
+// Shared SQL type that works for both pool and transaction contexts
+type AnySql = postgres.Sql;
 
 // ---------------------------------------------------------------------------
 // Public balance types
@@ -54,10 +59,17 @@ export interface AllBalances {
  * pair INSIDE an existing transaction, using FOR UPDATE to serialize writers.
  */
 async function readBalanceLocked(
-  sql: Parameters<Parameters<typeof db.begin>[0]>[0] | typeof db,
+  sql: AnySql,
   exchangerId: string,
   asset: Asset,
 ): Promise<{ available: string; escrow: string }> {
+  // Lock the logical balance even when no ledger row exists yet.
+  await sql`
+    SELECT pg_advisory_xact_lock(
+      hashtextextended(${`${exchangerId}:${asset}`}, 0)
+    )
+  `;
+
   // We lock the most recent ledger row for this (exchanger, asset).
   // If no rows exist yet the balance is 0.
   const rows = await sql<{ balance_after: string; escrow_after: string }[]>`
@@ -83,7 +95,7 @@ async function readBalanceLocked(
  * Inserts a single ledger entry inside an existing transaction.
  */
 async function insertEntry(
-  sql: Parameters<Parameters<typeof db.begin>[0]>[0] | typeof db,
+  sql: AnySql,
   params: {
     exchangerId:     string;
     tradeId:         string | null;
@@ -198,10 +210,10 @@ export async function recordDeposit(params: {
       return entry;
     }
 
-    const { available, escrow } = await readBalanceLocked(sql, params.exchangerId, params.asset);
+    const { available, escrow } = await readBalanceLocked(sql as unknown as postgres.Sql, params.exchangerId, params.asset);
     const newAvailable = add(available, params.amount);
 
-    const entry = await insertEntry(sql, {
+    const entry = await insertEntry(sql as unknown as postgres.Sql, {
       exchangerId:    params.exchangerId,
       tradeId:        params.tradeId ?? null,
       type:           'DEPOSIT',
@@ -246,7 +258,7 @@ export async function lockEscrow(params: {
       return entry;
     }
 
-    const { available, escrow } = await readBalanceLocked(sql, params.exchangerId, params.asset);
+    const { available, escrow } = await readBalanceLocked(sql as unknown as postgres.Sql, params.exchangerId, params.asset);
 
     if (!bigGte(available, params.amount)) {
       throw new InsufficientBalanceError(
@@ -257,7 +269,7 @@ export async function lockEscrow(params: {
     const newAvailable = sub(available, params.amount);
     const newEscrow    = add(escrow, params.amount);
 
-    const entry = await insertEntry(sql, {
+    const entry = await insertEntry(sql as unknown as postgres.Sql, {
       exchangerId:    params.exchangerId,
       tradeId:        params.tradeId,
       type:           'ESCROW_LOCK',
@@ -276,6 +288,70 @@ export async function lockEscrow(params: {
       'Ledger: ESCROW_LOCK recorded',
     );
     return entry;
+  });
+}
+
+export async function claimTradeWithEscrow(params: {
+  exchangerId: string;
+  tradeId: string;
+  asset: Asset;
+  amount: string;
+  idempotencyKey: string;
+  actorDiscordId: string;
+  note: string;
+}): Promise<DbTrade> {
+  return db.begin(async (sql) => {
+    const [trade] = await sql<DbTrade[]>`
+      SELECT * FROM trades WHERE id = ${params.tradeId} FOR UPDATE
+    `;
+    if (!trade) throw new Error(`Trade ${params.tradeId} not found`);
+    if (trade.status !== 'OPEN') throw new Error(`Trade ${params.tradeId} is no longer open`);
+
+    const existing = await sql<{ id: string }[]>`
+      SELECT id FROM ledger_entries WHERE idempotency_key = ${params.idempotencyKey}
+    `;
+    if (existing.length === 0) {
+      const { available, escrow } = await readBalanceLocked(sql as unknown as postgres.Sql, params.exchangerId, params.asset);
+      if (!bigGte(available, params.amount)) {
+        throw new InsufficientBalanceError(
+          `Insufficient balance: need ${params.amount} ${params.asset}, have ${available}`,
+        );
+      }
+      await insertEntry(sql as unknown as postgres.Sql, {
+        exchangerId: params.exchangerId,
+        tradeId: params.tradeId,
+        type: 'ESCROW_LOCK',
+        asset: params.asset,
+        amount: params.amount,
+        balanceBefore: available,
+        balanceAfter: sub(available, params.amount),
+        escrowBefore: escrow,
+        escrowAfter: add(escrow, params.amount),
+        reference: `Escrow lock for trade ${params.tradeId}`,
+        idempotencyKey: params.idempotencyKey,
+      });
+    }
+
+    const [claimed] = await sql<DbTrade[]>`
+      UPDATE trades SET status = 'CLAIMED', exchanger_id = ${params.exchangerId}, claimed_at = NOW()
+      WHERE id = ${params.tradeId}
+      RETURNING *
+    `;
+    await sql`
+      INSERT INTO trade_logs (trade_id, from_status, to_status, actor_discord_id, note)
+      VALUES (${params.tradeId}, 'OPEN', 'CLAIMED', ${params.actorDiscordId}, ${params.note})
+    `;
+    const [pending] = await sql<DbTrade[]>`
+      UPDATE trades SET status = 'FIAT_PENDING'
+      WHERE id = ${params.tradeId}
+      RETURNING *
+    `;
+    await sql`
+      INSERT INTO trade_logs (trade_id, from_status, to_status, actor_discord_id, note)
+      VALUES (${params.tradeId}, 'CLAIMED', 'FIAT_PENDING', ${params.actorDiscordId}, 'Awaiting fiat payment from user')
+    `;
+    void claimed;
+    return pending;
   });
 }
 
@@ -300,11 +376,11 @@ export async function releaseEscrow(params: {
       return entry;
     }
 
-    const { available, escrow } = await readBalanceLocked(sql, params.exchangerId, params.asset);
+    const { available, escrow } = await readBalanceLocked(sql as unknown as postgres.Sql, params.exchangerId, params.asset);
     const newEscrow    = sub(escrow, params.amount);
     const newAvailable = add(available, params.amount);
 
-    const entry = await insertEntry(sql, {
+    const entry = await insertEntry(sql as unknown as postgres.Sql, {
       exchangerId:    params.exchangerId,
       tradeId:        params.tradeId,
       type:           'ESCROW_RELEASE',
@@ -323,6 +399,57 @@ export async function releaseEscrow(params: {
       'Ledger: ESCROW_RELEASE recorded',
     );
     return entry;
+  });
+}
+
+export async function cancelTradeAndReleaseEscrow(params: {
+  tradeId: string;
+  exchangerId: string;
+  asset: Asset;
+  amount: string;
+  idempotencyKey: string;
+  actorDiscordId: string;
+  note: string;
+}): Promise<void> {
+  await db.begin(async (sql) => {
+    const [trade] = await sql<{ status: string }[]>`
+      SELECT status FROM trades WHERE id = ${params.tradeId} FOR UPDATE
+    `;
+    if (!trade) throw new Error(`Trade ${params.tradeId} not found`);
+    if (trade.status === 'CANCELLED') return;
+    if (!isTransitionAllowed(trade.status as any, 'CANCELLED')) {
+      throw new Error(`Trade ${params.tradeId} cannot be cancelled from ${trade.status}`);
+    }
+
+    const existing = await sql<{ id: string }[]>`
+      SELECT id FROM ledger_entries WHERE idempotency_key = ${params.idempotencyKey}
+    `;
+    if (existing.length === 0) {
+      const { available, escrow } = await readBalanceLocked(sql as unknown as postgres.Sql, params.exchangerId, params.asset);
+      const newEscrow = sub(escrow, params.amount);
+
+      await insertEntry(sql as unknown as postgres.Sql, {
+        exchangerId: params.exchangerId,
+        tradeId: params.tradeId,
+        type: 'ESCROW_RELEASE',
+        asset: params.asset,
+        amount: params.amount,
+        balanceBefore: available,
+        balanceAfter: add(available, params.amount),
+        escrowBefore: escrow,
+        escrowAfter: newEscrow,
+        reference: `Escrow released for trade ${params.tradeId}`,
+        idempotencyKey: params.idempotencyKey,
+      });
+    }
+
+    await sql`
+      UPDATE trades SET status = 'CANCELLED' WHERE id = ${params.tradeId}
+    `;
+    await sql`
+      INSERT INTO trade_logs (trade_id, from_status, to_status, actor_discord_id, note)
+      VALUES (${params.tradeId}, ${trade.status}, 'CANCELLED', ${params.actorDiscordId}, ${params.note})
+    `;
   });
 }
 
@@ -349,10 +476,10 @@ export async function recordWithdrawal(params: {
       return entry;
     }
 
-    const { available, escrow } = await readBalanceLocked(sql, params.exchangerId, params.asset);
+    const { available, escrow } = await readBalanceLocked(sql as unknown as postgres.Sql, params.exchangerId, params.asset);
     const newEscrow = sub(escrow, params.amount);
 
-    const entry = await insertEntry(sql, {
+    const entry = await insertEntry(sql as unknown as postgres.Sql, {
       exchangerId:    params.exchangerId,
       tradeId:        params.tradeId,
       type:           'WITHDRAWAL',
@@ -395,10 +522,10 @@ export async function recordFee(params: {
       return entry;
     }
 
-    const { available, escrow } = await readBalanceLocked(sql, params.exchangerId, params.asset);
+    const { available, escrow } = await readBalanceLocked(sql as unknown as postgres.Sql, params.exchangerId, params.asset);
     const newAvailable = sub(available, params.amount);
 
-    const entry = await insertEntry(sql, {
+    const entry = await insertEntry(sql as unknown as postgres.Sql, {
       exchangerId:    params.exchangerId,
       tradeId:        params.tradeId,
       type:           'FEE',
@@ -441,10 +568,10 @@ export async function adminCredit(params: {
       return entry;
     }
 
-    const { available, escrow } = await readBalanceLocked(sql, params.exchangerId, params.asset);
+    const { available, escrow } = await readBalanceLocked(sql as unknown as postgres.Sql, params.exchangerId, params.asset);
     const newAvailable = add(available, params.amount);
 
-    const entry = await insertEntry(sql, {
+    const entry = await insertEntry(sql as unknown as postgres.Sql, {
       exchangerId:    params.exchangerId,
       tradeId:        null,
       type:           'MANUAL_CREDIT',
@@ -488,7 +615,7 @@ export async function adminDebit(params: {
       return entry;
     }
 
-    const { available, escrow } = await readBalanceLocked(sql, params.exchangerId, params.asset);
+    const { available, escrow } = await readBalanceLocked(sql as unknown as postgres.Sql, params.exchangerId, params.asset);
 
     if (!bigGte(available, params.amount)) {
       throw new InsufficientBalanceError(
@@ -498,7 +625,7 @@ export async function adminDebit(params: {
 
     const newAvailable = sub(available, params.amount);
 
-    const entry = await insertEntry(sql, {
+    const entry = await insertEntry(sql as unknown as postgres.Sql, {
       exchangerId:    params.exchangerId,
       tradeId:        null,
       type:           'MANUAL_DEBIT',

@@ -13,10 +13,14 @@ import {
   TextChannel,
 } from 'discord.js';
 import { z } from 'zod';
+import * as bitcoin from 'bitcoinjs-lib';
+import { ethers } from 'ethers';
+import { PublicKey } from '@solana/web3.js';
 import { checkTicketRateLimit } from '../../security/rateLimiter';
 import { createTrade } from '../../engine/tradeService';
 import { buildTradeEmbed, buildClaimRow } from '../embeds/tradeEmbed';
 import { logger } from '../../utils/logger';
+import { config } from '../../config/env';
 import type { Asset, FiatCurrency, FiatMethod, TradeDirection } from '../../types';
 
 // ---------------------------------------------------------------------------
@@ -28,8 +32,7 @@ const TradeFormSchema = z.object({
   fiat_method:  z.enum(['BANK_TRANSFER', 'REVOLUT', 'WISE', 'PAYPAL', 'CASH_IN_PERSON', 'OTHER']),
   direction:    z.enum(['BUY', 'SELL']),
   amount:       z.string().refine((v) => {
-    const n = parseFloat(v);
-    return !isNaN(n) && n > 0;
+    return /^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(v) && Number.isFinite(Number(v)) && Number(v) > 0;
   }, 'Amount must be a positive number'),
   fiat_currency: z.enum(['EUR', 'USD', 'GBP']),
 });
@@ -95,6 +98,11 @@ async function handleTradeCreate(interaction: ModalSubmitInteraction): Promise<v
   }
 
   const { asset, fiat_method, direction, amount, fiat_currency } = parsed.data;
+
+  if (direction === 'SELL') {
+    await interaction.editReply('❌ SELL trades are not available yet. Please choose BUY.');
+    return;
+  }
 
   const guild = interaction.guild!;
 
@@ -167,7 +175,35 @@ async function handleWalletAddress(
     return;
   }
 
+  const trade = await (await import('../../engine/tradeService')).getTradeById(tradeId);
+  if (!trade || !isValidWalletAddress(trade.asset, parsed.data.wallet_address)) {
+    await interaction.editReply('❌ Wallet address is invalid for this asset or network.');
+    return;
+  }
+
   // Delegate to trade engine handler
   const { handleWalletAddressSubmit } = await import('./tradeFlowHandler');
   await handleWalletAddressSubmit(interaction, tradeId, parsed.data.wallet_address);
+}
+
+function isValidWalletAddress(asset: Asset, address: string): boolean {
+  try {
+    if (asset === 'ETH' || asset === 'USDT_ERC20' || asset === 'USDC_ERC20') {
+      return ethers.isAddress(address);
+    }
+    if (asset === 'USDC_SPL') {
+      new PublicKey(address);
+      return true;
+    }
+
+    const network = config.NETWORK === 'testnet'
+      ? bitcoin.networks.testnet
+      : asset === 'LTC'
+        ? { messagePrefix: '\\x19Litecoin Signed Message:\\n', bech32: 'ltc', bip32: { public: 0x019da462, private: 0x019d9cfe }, pubKeyHash: 0x30, scriptHash: 0x32, wif: 0xb0 }
+        : bitcoin.networks.bitcoin;
+    bitcoin.address.toOutputScript(address, network);
+    return true;
+  } catch {
+    return false;
+  }
 }

@@ -12,6 +12,7 @@
 
 import { db } from '../db/client';
 import { logger } from '../utils/logger';
+import { getSettingNumber } from '../admin/settingsService';
 import type { DbTrade, DbTradeLog, TradeStatus, Asset, FiatCurrency, FiatMethod, TradeDirection } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -60,9 +61,8 @@ export interface CreateTradeParams {
 export async function createTrade(params: CreateTradeParams): Promise<DbTrade> {
   const { config } = await import('../config/env');
 
-  const expiresAt = new Date(
-    Date.now() + config.TIMEOUT_OPEN_MINUTES * 60 * 1000,
-  );
+  const openTimeout = await getSettingNumber('TIMEOUT_OPEN_MINUTES', config.TIMEOUT_OPEN_MINUTES);
+  const expiresAt = new Date(Date.now() + openTimeout * 60 * 1000);
 
   const [trade] = await db<DbTrade[]>`
     INSERT INTO trades (

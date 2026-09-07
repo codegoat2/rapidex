@@ -31,7 +31,7 @@ import {
   InvalidTransitionError,
 } from '../../engine/tradeService';
 import {
-  lockEscrow,
+  claimTradeWithEscrow,
   releaseEscrow,
   InsufficientBalanceError,
 } from '../../ledger/ledgerService';
@@ -44,6 +44,7 @@ import { buildTradeEmbed, buildUserActionRow, buildExchangerActionRow } from '..
 import { COLORS } from '../embeds/colors';
 import { logger } from '../../utils/logger';
 import { config } from '../../config/env';
+import { getRoleAdmin } from '../../config/runtimeConfig';
 import type { DbTrade } from '../../types';
 
 // ---------------------------------------------------------------------------
@@ -68,17 +69,35 @@ export async function handleClaim(
   const exchanger = await getExchangerByDiscordId(interaction.user.id);
   if (!exchanger) { await interaction.editReply('❌ Exchanger record not found.'); return; }
 
-  // Atomic: lock escrow + transition in one logical operation
-  // lockEscrow uses its own db.begin; transitionTrade uses its own db.begin
-  // Both are idempotent so double-click is safe.
   try {
-    await lockEscrow({
+    const fiatPendingTrade = await claimTradeWithEscrow({
       exchangerId:    exchanger.id,
       tradeId:        trade.id,
       asset:          trade.asset,
       amount:         trade.amount,
       idempotencyKey: escrowLockKey(trade.id, exchanger.id),
+      actorDiscordId: interaction.user.id,
+      note:           `Claimed by exchanger ${interaction.user.tag}`,
     });
+
+    const channel = interaction.guild?.channels.cache.get(trade.ticket_channel_id) as TextChannel | undefined;
+    if (channel) {
+      await channel.permissionOverwrites.create(interaction.user.id, {
+        ViewChannel: true, SendMessages: true, ReadMessageHistory: true,
+      });
+      const tradeEmbed = buildTradeEmbed(fiatPendingTrade, interaction.user.tag);
+      const userRow = buildUserActionRow(trade.id, 'FIAT_PENDING');
+      const fiatEmbed = buildFiatInstructionsEmbed(fiatPendingTrade, interaction.user.tag);
+      await channel.send({
+        content: `<@${trade.user_discord_id}> Your trade has been claimed by **${interaction.user.tag}**! Please follow the payment instructions below.`,
+        embeds: [tradeEmbed, fiatEmbed], components: [userRow],
+      });
+    }
+
+    await interaction.editReply(`✅ You have claimed trade \`${trade.id}\`. Escrow locked: **${trade.amount} ${trade.asset}**`);
+    void notifyAsync('notifyTradeClaimed', trade.id, interaction.user.id);
+    logger.info({ tradeId: trade.id, exchangerId: exchanger.id }, 'Trade claimed');
+    return;
   } catch (err) {
     if (err instanceof InsufficientBalanceError) {
       await interaction.editReply(`❌ Insufficient balance to claim this trade.\nYou need **${trade.amount} ${trade.asset}** available.`);
@@ -86,53 +105,6 @@ export async function handleClaim(
     }
     throw err;
   }
-
-  const updated = await transitionTrade({
-    tradeId:        trade.id,
-    to:             'CLAIMED',
-    actorDiscordId: interaction.user.id,
-    note:           `Claimed by exchanger ${interaction.user.tag}`,
-    updates: {
-      exchangerId: exchanger.id,
-      claimedAt:   new Date(),
-    },
-  });
-
-  // Move to FIAT_PENDING immediately
-  const fiatPendingTrade = await transitionTrade({
-    tradeId:        trade.id,
-    to:             'FIAT_PENDING',
-    actorDiscordId: interaction.user.id,
-    note:           'Awaiting fiat payment from user',
-  });
-
-  // Update the ticket channel — add exchanger, post fiat instructions
-  const channel = interaction.guild?.channels.cache.get(trade.ticket_channel_id) as TextChannel | undefined;
-  if (channel) {
-    // Give exchanger access to the ticket channel
-    await channel.permissionOverwrites.create(interaction.user.id, {
-      ViewChannel:    true,
-      SendMessages:   true,
-      ReadMessageHistory: true,
-    });
-
-    const tradeEmbed = buildTradeEmbed(fiatPendingTrade, interaction.user.tag);
-    const userRow    = buildUserActionRow(trade.id, 'FIAT_PENDING');
-    const fiatEmbed  = buildFiatInstructionsEmbed(fiatPendingTrade, interaction.user.tag);
-
-    await channel.send({
-      content:    `<@${trade.user_discord_id}> Your trade has been claimed by **${interaction.user.tag}**! Please follow the payment instructions below.`,
-      embeds:     [tradeEmbed, fiatEmbed],
-      components: [userRow],
-    });
-  }
-
-  await interaction.editReply(`✅ You have claimed trade \`${trade.id}\`. Escrow locked: **${trade.amount} ${trade.asset}**`);
-
-  // Notify (lazy import — avoids circular dep)
-  void notifyAsync('notifyTradeClaimed', trade.id, interaction.user.id);
-
-  logger.info({ tradeId: trade.id, exchangerId: exchanger.id }, 'Trade claimed');
 }
 
 // ---------------------------------------------------------------------------
@@ -261,11 +233,12 @@ export async function handleDispute(
 
   const channel = interaction.guild?.channels.cache.get(trade.ticket_channel_id) as TextChannel | undefined;
   if (channel) {
+    const roleId = await getRoleAdmin();
     const embed = new EmbedBuilder()
       .setColor(COLORS.DISPUTED)
       .setTitle('⚠️ Trade Disputed')
       .setDescription(
-        `A dispute has been raised by <@${interaction.user.id}>.\n\n<@&${config.ROLE_ADMIN}> please review this trade and use \`/force-release\` or \`/force-cancel\` to resolve it.`,
+        `A dispute has been raised by <@${interaction.user.id}>.\n\n${roleId ? `<@&${roleId}>` : '@here'} please review this trade and use \`/force-release\` or \`/force-cancel\` to resolve it.`,
       )
       .addFields({ name: 'Trade ID', value: `\`${trade.id}\`` })
       .setTimestamp();
@@ -282,7 +255,7 @@ export async function handleDispute(
     );
 
     await channel.send({
-      content:    `<@&${config.ROLE_ADMIN}>`,
+      content:    roleId ? `<@&${roleId}>` : '@here',
       embeds:     [embed],
       components: [adminRow],
     });
@@ -349,8 +322,15 @@ export async function handleForceRelease(
 
   if (!exchanger) { await interaction.editReply('❌ Exchanger record missing.'); return; }
 
+  const pendingTrade = await transitionTrade({
+    tradeId: trade.id,
+    to: 'RELEASE_PENDING',
+    actorDiscordId: interaction.user.id,
+    note: `Force-release approved by admin ${interaction.user.tag}`,
+  });
+
   await interaction.editReply('⏳ Sending crypto...');
-  void sendCryptoAsync(trade, exchanger.id, interaction.user.id);
+  void sendCryptoAsync(pendingTrade, exchanger.id, interaction.user.id);
 
   await db_auditLog(interaction.user.id, trade.user_discord_id, 'FORCE_RELEASE', 'trade', trade.id);
 }

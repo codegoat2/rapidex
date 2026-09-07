@@ -19,6 +19,10 @@ import { sendAdminAlert } from '../notifications/notificationService';
 import { EmbedBuilder } from 'discord.js';
 import { getDiscordClient } from '../bot/client';
 import { COLORS } from '../bot/embeds/colors';
+import { getChannelAdminAlerts } from '../config/runtimeConfig';
+import { rpcUrl, blockbookUrl, blockbookHeaders } from '../config/nownodes';
+import { Connection, PublicKey } from '@solana/web3.js';
+import { ethers } from 'ethers';
 import type { Asset } from '../types';
 
 const log = logger.child({ worker: 'accounting' });
@@ -120,7 +124,9 @@ async function runDailyReport(): Promise<void> {
 
   try {
     const client  = getDiscordClient();
-    const channel = client.channels.cache.get(config.CHANNEL_ADMIN_ALERTS);
+    const channelId = await getChannelAdminAlerts();
+    if (!channelId) return;
+    const channel = client.channels.cache.get(channelId);
     if (channel?.isTextBased()) {
       await (channel as import('discord.js').TextChannel).send({ embeds: [embed] });
     }
@@ -214,36 +220,26 @@ async function reconcileAddress(
 async function getOnChainBalance(address: string, asset: Asset, chain: string): Promise<number | null> {
   try {
     if (chain === 'bitcoin' || chain === 'litecoin') {
-      const coinPath = chain === 'litecoin' ? 'ltc/main' : 'btc/main';
       const res = await axios.get<{ final_balance?: number }>(
-        `https://api.blockcypher.com/v1/${coinPath}/addrs/${address}/balance?token=${config.BLOCKCYPHER_TOKEN}`,
-        { timeout: 10000 },
+        `${blockbookUrl(chain === 'litecoin' ? 'ltc' : 'btc')}/addr/${address}/balance`,
+        { headers: blockbookHeaders(), timeout: 10000 },
       );
       return (res.data.final_balance ?? 0) / 1e8;
     }
 
     if (chain === 'ethereum') {
-      const network = config.NETWORK === 'testnet' ? 'eth-sepolia' : 'eth-mainnet';
       if (asset === 'ETH') {
-        const res = await axios.post<{ result?: string }>(
-          `https://${network}.g.alchemy.com/v2/${config.ALCHEMY_API_KEY}`,
-          { jsonrpc: '2.0', method: 'eth_getBalance', params: [address, 'latest'], id: 1 },
-          { timeout: 10000 },
-        );
-        return parseInt(res.data.result ?? '0x0', 16) / 1e18;
+        const provider = new ethers.JsonRpcProvider(rpcUrl('eth'));
+        const balance = await provider.getBalance(address);
+        return Number(balance) / 1e18;
       }
-      // ERC-20 balanceOf — simplified (full impl would use ethers.js contract call)
       return null;
     }
 
     if (chain === 'solana') {
-      const cluster = config.NETWORK === 'testnet' ? 'devnet' : 'mainnet';
-      const res = await axios.post<{ result?: { value?: number } }>(
-        `https://${cluster}.helius-rpc.com/?api-key=${config.HELIUS_API_KEY}`,
-        { jsonrpc: '2.0', method: 'getBalance', params: [address], id: 1 },
-        { timeout: 10000 },
-      );
-      return (res.data.result?.value ?? 0) / 1e9;
+      const connection = new Connection(rpcUrl('sol'), 'confirmed');
+      const balance = await connection.getBalance(new PublicKey(address));
+      return balance / 1e9;
     }
 
     return null;

@@ -21,6 +21,9 @@ import { db } from '../db/client';
 import { logger } from '../utils/logger';
 import { config } from '../config/env';
 import { processDeposit } from './depositProcessor';
+import { rpcUrl, blockbookUrl, blockbookHeaders, ERC20_CONTRACTS } from '../config/nownodes';
+import { Connection, PublicKey } from '@solana/web3.js';
+import { ethers } from 'ethers';
 import type { Asset } from '../types';
 
 const log = logger.child({ worker: 'reconciliation' });
@@ -117,11 +120,10 @@ async function reconcileAddress(
 // ---------------------------------------------------------------------------
 
 async function fetchBlockcypherTxIds(address: string, chain: string): Promise<string[]> {
-  const coinPath = chain === 'litecoin' ? 'ltc/main' : 'btc/main';
-  const url = `https://api.blockcypher.com/v1/${coinPath}/addrs/${address}/full?limit=20&token=${config.BLOCKCYPHER_TOKEN}`;
+  const url = `${blockbookUrl(chain === 'litecoin' ? 'ltc' : 'btc')}/addr/${address}/full?limit=20`;
 
   try {
-    const res = await axios.get<{ txs?: Array<{ hash: string }> }>(url, { timeout: 10000 });
+    const res = await axios.get<{ txs?: Array<{ hash: string }> }>(url, { headers: blockbookHeaders(), timeout: 10000 });
     return (res.data.txs ?? []).map((tx) => tx.hash);
   } catch {
     return [];
@@ -129,51 +131,47 @@ async function fetchBlockcypherTxIds(address: string, chain: string): Promise<st
 }
 
 async function fetchAlchemyTxIds(address: string, asset: Asset): Promise<string[]> {
-  const network = config.NETWORK === 'testnet' ? 'eth-sepolia' : 'eth-mainnet';
-  const url = `https://${network}.g.alchemy.com/v2/${config.ALCHEMY_API_KEY}`;
-
-  const category = asset === 'ETH' ? ['external'] : ['erc20'];
+  const provider = new ethers.JsonRpcProvider(rpcUrl('eth'));
 
   try {
-    const res = await axios.post<{
-      result?: { transfers: Array<{ hash: string }> };
-    }>(
-      url,
-      {
-        id: 1,
-        jsonrpc: '2.0',
-        method: 'alchemy_getAssetTransfers',
-        params: [{
-          toAddress: address,
-          category,
-          withMetadata: false,
-          maxCount: '0x14', // 20
-        }],
-      },
-      { timeout: 10000 },
-    );
-    return (res.data.result?.transfers ?? []).map((t) => t.hash);
+    if (asset === 'ETH') {
+      const latest = await provider.send('eth_getBlockNumber', []);
+      const blockNum = Number(latest);
+      const fromBlock = `0x${Math.max(0, blockNum - 1000).toString(16)}`;
+      const logs = await provider.send('eth_getLogs', [{
+        fromBlock,
+        toBlock: `0x${blockNum.toString(16)}`,
+        topics: [],
+      }]);
+      return (logs as any[])
+        .filter((log: any) => !log.address || log.address === '0x0000000000000000000000000000000000000000')
+        .filter((log: any) => {
+          const from = '0x' + (log.topics[1] || '').slice(26);
+          const to = '0x' + (log.topics[2] || '').slice(26);
+          return from.toLowerCase() === address.toLowerCase() || to.toLowerCase() === address.toLowerCase();
+        })
+        .map((log: any) => log.transactionHash)
+        .filter((hash: string) => hash);
+    }
+    const topic = ethers.id('Transfer(address,address,uint256)').slice(2);
+    const logs = await provider.send('eth_getLogs', [{
+      fromBlock: '0x0',
+      toBlock: 'latest',
+      address: ERC20_CONTRACTS[asset === 'USDT_ERC20' ? 'USDT_ERC20' : 'USDC_ERC20']?.mainnet,
+      topics: [topic, null, ethers.zeroPadValue(address, 32).slice(2)],
+    }]);
+    return (logs as any[]).map((log: any) => log.transactionHash).filter((hash: string) => hash);
   } catch {
     return [];
   }
 }
 
 async function fetchHeliusTxIds(address: string): Promise<string[]> {
-  const cluster = config.NETWORK === 'testnet' ? 'devnet' : 'mainnet';
-  const url = `https://${cluster}.helius-rpc.com/?api-key=${config.HELIUS_API_KEY}`;
+  const connection = new Connection(rpcUrl('sol'), 'confirmed');
 
   try {
-    const res = await axios.post<Array<{ signature: string }>>(
-      url,
-      {
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'getSignaturesForAddress',
-        params: [address, { limit: 20 }],
-      },
-      { timeout: 10000 },
-    );
-    return Array.isArray(res.data) ? res.data.map((r) => r.signature) : [];
+    const signatures = await connection.getSignaturesForAddress(new PublicKey(address), { limit: 20 });
+    return signatures.map((s) => s.signature);
   } catch {
     return [];
   }
@@ -185,21 +183,68 @@ async function fetchTxAmount(
   asset: Asset,
   chain: string,
 ): Promise<string | null> {
-  // Simplified — in production each chain has its own TX detail fetcher.
-  // Returns the amount received at `address` for this specific tx.
   try {
     if (chain === 'bitcoin' || chain === 'litecoin') {
-      const coinPath = chain === 'litecoin' ? 'ltc/main' : 'btc/main';
-      const url = `https://api.blockcypher.com/v1/${coinPath}/txs/${txId}?token=${config.BLOCKCYPHER_TOKEN}`;
+      const url = `${blockbookUrl(chain === 'litecoin' ? 'ltc' : 'btc')}/tx/${txId}`;
       const res = await axios.get<{ outputs: Array<{ addresses: string[]; value: number }> }>(
         url,
-        { timeout: 10000 },
+        { headers: blockbookHeaders(), timeout: 10000 },
       );
       const out = res.data.outputs?.find((o) => o.addresses?.includes(address));
       if (!out) return null;
       return (out.value / 1e8).toFixed(18);
     }
-    // ETH/SOL amounts are available from the original tx detail — placeholder
+    if (chain === 'ethereum') {
+      const provider = new ethers.JsonRpcProvider(rpcUrl('eth'));
+      const tx = await provider.getTransaction(txId);
+      if (!tx) return null;
+      const receipt = await provider.getTransactionReceipt(txId);
+      if (!receipt) return null;
+      if (asset === 'ETH') {
+        const value = Number(tx.value) / 1e18;
+        return value.toFixed(18);
+      }
+      const netKey = config.NETWORK === 'testnet' ? 'testnet' : 'mainnet';
+      const contractAddress = ERC20_CONTRACTS[asset as 'USDT_ERC20' | 'USDC_ERC20']?.[netKey];
+      if (!contractAddress) return null;
+      const contract = new ethers.Contract(contractAddress, ['function decimals() view returns (uint8)'], provider);
+      const decimals = await contract.decimals() as bigint;
+      const transferInterface = new ethers.Interface([
+        'event Transfer(address indexed from, address indexed to, uint256 value)',
+      ]);
+      for (const log of receipt.logs) {
+        if (log.address.toLowerCase() !== contractAddress.toLowerCase()) continue;
+        try {
+          const parsed = transferInterface.parseLog({ topics: [...log.topics], data: log.data });
+          if (parsed?.name === 'Transfer' && String(parsed.args.to).toLowerCase() === address.toLowerCase()) {
+            return ethers.formatUnits(parsed.args.value as bigint, decimals);
+          }
+        } catch {
+          // Ignore unrelated logs in the same transaction.
+        }
+      }
+      return null;
+    }
+    if (chain === 'solana') {
+      const connection = new Connection(rpcUrl('sol'), 'confirmed');
+      const tx = await connection.getTransaction(txId);
+      if (!tx) return null;
+      const preTokenBalances = tx.meta?.preTokenBalances ?? [];
+      const postTokenBalances = tx.meta?.postTokenBalances ?? [];
+      const tokenBalance = postTokenBalances.find((balance: any) => balance.owner === address);
+      if (tokenBalance) {
+        const before = preTokenBalances.find((balance: any) => balance.accountIndex === tokenBalance.accountIndex);
+        const received = Number(tokenBalance.uiTokenAmount.uiAmountString) - Number(before?.uiTokenAmount.uiAmountString ?? '0');
+        if (received > 0) return received.toFixed(18);
+      }
+
+      const accountIndex = tx.transaction.message.staticAccountKeys.findIndex((key: PublicKey) => key.toBase58() === address);
+      if (accountIndex >= 0) {
+        const received = (tx.meta?.postBalances?.[accountIndex] ?? 0) - (tx.meta?.preBalances?.[accountIndex] ?? 0);
+        if (received > 0) return (received / 1e9).toFixed(18);
+      }
+      return null;
+    }
     return null;
   } catch {
     return null;

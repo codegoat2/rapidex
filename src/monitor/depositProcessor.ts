@@ -142,38 +142,42 @@ function parseBlockcypher(payload: Record<string, unknown>): ParsedDeposit[] {
 }
 
 function parseAlchemy(payload: Record<string, unknown>): ParsedDeposit[] {
-  // Alchemy Address Activity webhook
   const event = (payload['event'] as Record<string, unknown> | undefined) ?? {};
   const activity = (event['activity'] as Array<Record<string, unknown>> | undefined) ?? [];
 
-  return activity
-    .filter((act) => act['category'] === 'token' || act['category'] === 'external')
-    .map((act) => {
-      const toAddress = String(act['toAddress'] ?? '');
-      const value = String(act['value'] ?? '0');
-      const asset = act['asset'] as string;
-      const txHash = String(act['hash'] ?? '');
+  const results: ParsedDeposit[] = [];
 
-      let mappedAsset: Asset;
-      if (asset === 'ETH') {
-        mappedAsset = 'ETH';
-      } else if (asset === 'USDT') {
-        mappedAsset = 'USDT_ERC20';
-      } else if (asset === 'USDC') {
-        mappedAsset = 'USDC_ERC20';
-      } else {
-        return null;
-      }
+  for (const act of activity) {
+    if (act['category'] !== 'token' && act['category'] !== 'external') continue;
 
-      return {
-        txId: txHash,
-        address: toAddress.toLowerCase(),
-        amount: value,
-        asset: mappedAsset,
-        confirmations: 1,
-      };
-    })
-    .filter((d): d is ParsedDeposit => d !== null && Number(d.amount) > 0);
+    const toAddress = String(act['toAddress'] ?? '');
+    const value = String(act['value'] ?? '0');
+    const asset = String(act['asset'] ?? '');
+    const txHash = String(act['hash'] ?? '');
+
+    let mappedAsset: 'ETH' | 'USDT_ERC20' | 'USDC_ERC20';
+    if (asset === 'ETH') {
+      mappedAsset = 'ETH';
+    } else if (asset === 'USDT') {
+      mappedAsset = 'USDT_ERC20';
+    } else if (asset === 'USDC') {
+      mappedAsset = 'USDC_ERC20';
+    } else {
+      continue;
+    }
+
+    if (Number(value) <= 0) continue;
+
+    results.push({
+      txId: txHash,
+      address: toAddress.toLowerCase(),
+      amount: value,
+      asset: mappedAsset,
+      confirmations: 1,
+    });
+  }
+
+  return results;
 }
 
 function parseHelius(payload: Record<string, unknown>): ParsedDeposit[] {

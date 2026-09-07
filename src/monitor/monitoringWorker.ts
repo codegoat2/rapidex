@@ -14,6 +14,9 @@ import { logger } from '../utils/logger';
 import { config } from '../config/env';
 import { sendAdminAlert } from '../notifications/notificationService';
 import { runHealthAlerts } from './healthCheck';
+import { rpcUrl, blockbookUrl, blockbookHeaders } from '../config/nownodes';
+import { Connection, PublicKey } from '@solana/web3.js';
+import { ethers } from 'ethers';
 
 const log = logger.child({ worker: 'monitoring' });
 
@@ -52,11 +55,11 @@ async function checkHotWalletBalances(): Promise<void> {
     { asset: 'LTC',      address: config.HOT_WALLET_LTC,  chain: 'litecoin' },
     { asset: 'ETH',      address: config.HOT_WALLET_ETH,  chain: 'ethereum' },
     { asset: 'USDC_SPL', address: config.HOT_WALLET_SOL,  chain: 'solana'   },
-  ].filter(w => w.address);
+  ].filter((w): w is { asset: string; address: string; chain: string } => !!w.address);
 
   for (const wallet of wallets) {
     try {
-      const balance = await fetchWalletBalance(wallet.address!, wallet.asset, wallet.chain);
+      const balance = await fetchWalletBalance(wallet.address, wallet.asset, wallet.chain);
       if (balance === null) continue;
 
       // Update DB cache
@@ -83,30 +86,21 @@ async function checkHotWalletBalances(): Promise<void> {
 async function fetchWalletBalance(address: string, asset: string, chain: string): Promise<number | null> {
   try {
     if (chain === 'bitcoin' || chain === 'litecoin') {
-      const coinPath = chain === 'litecoin' ? 'ltc/main' : 'btc/main';
       const res = await axios.get<{ final_balance?: number }>(
-        `https://api.blockcypher.com/v1/${coinPath}/addrs/${address}/balance?token=${config.BLOCKCYPHER_TOKEN}`,
-        { timeout: 10000 },
+        `${blockbookUrl(chain === 'litecoin' ? 'ltc' : 'btc')}/addr/${address}/balance`,
+        { headers: blockbookHeaders(), timeout: 10000 },
       );
       return (res.data.final_balance ?? 0) / 1e8;
     }
     if (chain === 'ethereum' && asset === 'ETH') {
-      const network = config.NETWORK === 'testnet' ? 'eth-sepolia' : 'eth-mainnet';
-      const res = await axios.post<{ result?: string }>(
-        `https://${network}.g.alchemy.com/v2/${config.ALCHEMY_API_KEY}`,
-        { jsonrpc: '2.0', method: 'eth_getBalance', params: [address, 'latest'], id: 1 },
-        { timeout: 10000 },
-      );
-      return parseInt(res.data.result ?? '0x0', 16) / 1e18;
+      const provider = new ethers.JsonRpcProvider(rpcUrl('eth'));
+      const balance = await provider.getBalance(address);
+      return Number(balance) / 1e18;
     }
     if (chain === 'solana') {
-      const cluster = config.NETWORK === 'testnet' ? 'devnet' : 'mainnet';
-      const res = await axios.post<{ result?: { value?: number } }>(
-        `https://${cluster}.helius-rpc.com/?api-key=${config.HELIUS_API_KEY}`,
-        { jsonrpc: '2.0', method: 'getBalance', params: [address], id: 1 },
-        { timeout: 10000 },
-      );
-      return (res.data.result?.value ?? 0) / 1e9;
+      const connection = new Connection(rpcUrl('sol'), 'confirmed');
+      const balance = await connection.getBalance(new PublicKey(address));
+      return balance / 1e9;
     }
   } catch { /* ignored */ }
   return null;
