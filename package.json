@@ -17,7 +17,7 @@
     "smoke-test": "ts-node src/db/smoke-test.ts"
   },
   "dependencies": {
-    "@discordjs/rest": "^2.3.0",
+    "@discordjs/rest": "2.1.0",
     "@neondatabase/serverless": "^0.9.3",
     "@sentry/node": "^7.109.0",
     "@solana/spl-token": "^0.4.6",
@@ -30,8 +30,8 @@
     "bitcoinjs-lib": "^6.1.5",
     "cookie-parser": "^1.4.7",
     "crypto-js": "^4.2.0",
-    "discord-api-types": "^0.37.83",
-    "discord.js": "^14.14.1",
+    "discord-api-types": "0.37.61",
+    "discord.js": "14.14.1",
     "dotenv": "^16.4.5",
     "ecpair": "^2.1.0",
     "ed25519-hd-key": "^2.0.0",
@@ -54,6 +54,7 @@
     "@types/node": "^20.12.7",
     "@types/node-cron": "^3.0.11",
     "@types/supertest": "^7.2.1",
+    "@types/tiny-secp256k1": "2.0.1",
     "@types/uuid": "^9.0.8",
     "@typescript-eslint/eslint-plugin": "^7.7.1",
     "@typescript-eslint/parser": "^7.7.1",
