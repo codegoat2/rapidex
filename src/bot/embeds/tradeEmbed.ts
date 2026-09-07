@@ -12,34 +12,53 @@ import { COLORS } from './colors';
 import type { DbTrade } from '../../types';
 
 // ---------------------------------------------------------------------------
+// Custom server emoji
+// ---------------------------------------------------------------------------
+
+const E = {
+  BTC:     '<:1425bitcoin:1546527437406343299>',
+  LTC:     '<:2625crypto:1546528103176601712>',
+  ETH:     '<:3031ethereum:1546527560328941669>',
+  SOL:     '<:19845solana:1546527612694831184>',
+  USDT:    '<:7541tetherusdt:1546527696937291796>',
+  REVOLUT: '<:6383revolut:1546528170130407564>',
+  BANK:    '<:bank:1546528985406636113>',
+  BINANCE: '<:Binance:1546528855886659678>',
+  PAYSAFE: '<:3459paysafecard:1546531852414623774>',
+  APPLE:   '<:9823applepaylogo:1546528385470304276>',
+  CASHAPP: '<:55778cashapp:1546528307242340462>',
+  PAYPAL:  '<:51891paypal:1546528262531059825>',
+} as const;
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Human-readable label for a fiat method key */
+/** Labelled fiat method with server emoji prefix */
 export function fiatMethodLabel(method: string): string {
   const MAP: Record<string, string> = {
-    BANK_TRANSFER:     'Bank Transfer',
-    REVOLUT:           'Revolut',
+    BANK_TRANSFER:     `${E.BANK} Bank Transfer`,
+    REVOLUT:           `${E.REVOLUT} Revolut`,
     WISE:              'Wise',
-    PAYPAL:            'PayPal',
+    PAYPAL:            `${E.PAYPAL} PayPal`,
     CASH_IN_PERSON:    'Cash in Person',
-    BINANCE_GIFT_CARD: 'Binance Gift Card',
-    PAYSAFE:           'Paysafe Card',
-    APPLE_PAY:         'Apple Pay',
-    CASHAPP:           'CashApp',
+    BINANCE_GIFT_CARD: `${E.BINANCE} Binance Gift Card`,
+    PAYSAFE:           `${E.PAYSAFE} Paysafe Card`,
+    APPLE_PAY:         `${E.APPLE} Apple Pay`,
+    CASHAPP:           `${E.CASHAPP} CashApp`,
     OTHER:             'Other',
   };
   return MAP[method] ?? method.replace(/_/g, ' ');
 }
 
-/** Human-readable label for a crypto asset */
+/** Asset label with server emoji prefix */
 export function assetLabel(asset: string): string {
   const MAP: Record<string, string> = {
-    BTC:        'Bitcoin (BTC)',
-    LTC:        'Litecoin (LTC)',
-    ETH:        'Ethereum (ETH)',
-    SOL:        'Solana (SOL)',
-    USDT_BEP20: 'USDT (BSC)',
+    BTC:        `${E.BTC} Bitcoin (BTC)`,
+    LTC:        `${E.LTC} Litecoin (LTC)`,
+    ETH:        `${E.ETH} Ethereum (ETH)`,
+    SOL:        `${E.SOL} Solana (SOL)`,
+    USDT_BEP20: `${E.USDT} USDT (BSC)`,
     BNB:        'BNB (BSC)',
   };
   return MAP[asset] ?? asset;
@@ -288,11 +307,11 @@ export function buildPanelEmbed(): EmbedBuilder {
         '`Fiat to Fiat` — Convert between fiat payment methods',
         '',
         '**Supported Crypto**',
-        '`BTC`  `LTC`  `ETH`  `SOL`  `USDT`',
+        `${E.BTC} BTC  ${E.LTC} LTC  ${E.ETH} ETH  ${E.SOL} SOL  ${E.USDT} USDT`,
         '',
         '**Supported Payment Methods**',
-        'Revolut · Bank Transfer · Binance Gift Card',
-        'Paysafe · Apple Pay · CashApp · PayPal',
+        `${E.REVOLUT} Revolut  ${E.BANK} Bank Transfer  ${E.BINANCE} Binance Gift Card`,
+        `${E.PAYSAFE} Paysafe  ${E.APPLE} Apple Pay  ${E.CASHAPP} CashApp  ${E.PAYPAL} PayPal`,
       ].join('\n'),
     )
     .setFooter({ text: 'RapidEx · Private tickets · Verified exchangers' })

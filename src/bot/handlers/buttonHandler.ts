@@ -47,25 +47,45 @@ import {
 import { logger } from '../../utils/logger';
 
 // ---------------------------------------------------------------------------
+// Custom server emoji
+// ---------------------------------------------------------------------------
+
+const E = {
+  BTC:     '<:1425bitcoin:1546527437406343299>',
+  LTC:     '<:2625crypto:1546528103176601712>',
+  ETH:     '<:3031ethereum:1546527560328941669>',
+  SOL:     '<:19845solana:1546527612694831184>',
+  USDT:    '<:7541tetherusdt:1546527696937291796>',
+  REVOLUT: '<:6383revolut:1546528170130407564>',
+  BANK:    '<:bank:1546528985406636113>',
+  BINANCE: '<:Binance:1546528855886659678>',
+  PAYSAFE: '<:3459paysafecard:1546531852414623774>',
+  APPLE:   '<:9823applepaylogo:1546528385470304276>',
+  CASHAPP: '<:55778cashapp:1546528307242340462>',
+  PAYPAL:  '<:51891paypal:1546528262531059825>',
+  VENMO:   '<:29806venmo:1546528223695741059>',
+} as const;
+
+// ---------------------------------------------------------------------------
 // Static option lists
 // ---------------------------------------------------------------------------
 
 const CRYPTO_OPTIONS = [
-  { label: 'Bitcoin',       description: 'BTC',       value: 'BTC',        },
-  { label: 'Litecoin',      description: 'LTC',       value: 'LTC',        },
-  { label: 'Ethereum',      description: 'ETH',       value: 'ETH',        },
-  { label: 'Solana',        description: 'SOL',       value: 'SOL',        },
-  { label: 'Tether (USDT)', description: 'BSC',       value: 'USDT_BEP20', },
+  { label: 'Bitcoin',       description: 'BTC',  value: 'BTC',        emoji: E.BTC   },
+  { label: 'Litecoin',      description: 'LTC',  value: 'LTC',        emoji: E.LTC   },
+  { label: 'Ethereum',      description: 'ETH',  value: 'ETH',        emoji: E.ETH   },
+  { label: 'Solana',        description: 'SOL',  value: 'SOL',        emoji: E.SOL   },
+  { label: 'Tether (USDT)', description: 'BSC',  value: 'USDT_BEP20', emoji: E.USDT  },
 ] as const;
 
 const FIAT_OPTIONS = [
-  { label: 'Revolut',            value: 'REVOLUT'           },
-  { label: 'Bank Transfer',      value: 'BANK_TRANSFER'     },
-  { label: 'Binance Gift Card',  value: 'BINANCE_GIFT_CARD' },
-  { label: 'Paysafe Card',       value: 'PAYSAFE'           },
-  { label: 'Apple Pay',          value: 'APPLE_PAY'         },
-  { label: 'CashApp',            value: 'CASHAPP'           },
-  { label: 'PayPal',             value: 'PAYPAL'            },
+  { label: 'Revolut',           value: 'REVOLUT',           emoji: E.REVOLUT },
+  { label: 'Bank Transfer',     value: 'BANK_TRANSFER',     emoji: E.BANK    },
+  { label: 'Binance Gift Card', value: 'BINANCE_GIFT_CARD', emoji: E.BINANCE },
+  { label: 'Paysafe Card',      value: 'PAYSAFE',           emoji: E.PAYSAFE },
+  { label: 'Apple Pay',         value: 'APPLE_PAY',         emoji: E.APPLE   },
+  { label: 'CashApp',           value: 'CASHAPP',           emoji: E.CASHAPP },
+  { label: 'PayPal',            value: 'PAYPAL',            emoji: E.PAYPAL  },
 ] as const;
 
 function cryptoSelect(customId: string, placeholder: string): StringSelectMenuBuilder {
@@ -76,7 +96,11 @@ function cryptoSelect(customId: string, placeholder: string): StringSelectMenuBu
     .setMaxValues(1);
   for (const o of CRYPTO_OPTIONS) {
     menu.addOptions(
-      new StringSelectMenuOptionBuilder().setLabel(o.label).setDescription(o.description).setValue(o.value),
+      new StringSelectMenuOptionBuilder()
+        .setLabel(o.label)
+        .setDescription(o.description)
+        .setValue(o.value)
+        .setEmoji(o.emoji),
     );
   }
   return menu;
@@ -91,7 +115,10 @@ function fiatSelect(customId: string, placeholder: string, exclude?: string): St
   for (const o of FIAT_OPTIONS) {
     if (o.value === exclude) continue;
     menu.addOptions(
-      new StringSelectMenuOptionBuilder().setLabel(o.label).setValue(o.value),
+      new StringSelectMenuOptionBuilder()
+        .setLabel(o.label)
+        .setValue(o.value)
+        .setEmoji(o.emoji),
     );
   }
   return menu;

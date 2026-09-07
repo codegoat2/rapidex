@@ -141,7 +141,7 @@ export async function handleFiatSent(
   if (channel) {
     const embed = new EmbedBuilder()
       .setColor(COLORS.ESCROW)
-      .setTitle('💳 Fiat Payment Confirmed')
+      .setTitle('Payment Confirmed')
       .setDescription(`<@${interaction.user.id}> has confirmed the payment has been sent.\n\n**Exchanger:** Please verify receipt and click **Release Crypto** to complete the trade.`)
       .setTimestamp();
 
@@ -235,7 +235,7 @@ export async function handleDispute(
     const roleId = await getRoleAdmin();
     const embed = new EmbedBuilder()
       .setColor(COLORS.DISPUTED)
-      .setTitle('⚠️ Trade Disputed')
+      .setTitle('Trade Disputed')
       .setDescription(
         `A dispute has been raised by <@${interaction.user.id}>.\n\n${roleId ? `<@&${roleId}>` : '@here'} please review this trade and use \`/force-release\` or \`/force-cancel\` to resolve it.`,
       )
@@ -283,7 +283,7 @@ export async function handleForceReleaseConfirm(
 
   const embed = new EmbedBuilder()
     .setColor(COLORS.WARNING)
-    .setTitle('⚠️ Confirm Force Release')
+    .setTitle('Confirm Force Release')
     .setDescription(`This will send **${trade.amount} ${trade.asset}** to the user's wallet.\nAre you sure?`);
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -346,7 +346,7 @@ export async function handleForceCancelConfirm(
 
   const embed = new EmbedBuilder()
     .setColor(COLORS.WARNING)
-    .setTitle('⚠️ Confirm Force Cancel')
+    .setTitle('Confirm Force Cancel')
     .setDescription(`This will return **${trade.amount} ${trade.asset}** to the exchanger's available balance.\nAre you sure?`);
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -397,7 +397,7 @@ export async function handleForceCancel(
       embeds: [
         new EmbedBuilder()
           .setColor(COLORS.ERROR)
-          .setTitle('❌ Trade Force-Cancelled')
+          .setTitle('Trade Force-Cancelled')
           .setDescription(`Admin <@${interaction.user.id}> has cancelled this trade. Funds returned to exchanger.`)
           .setTimestamp(),
       ],
