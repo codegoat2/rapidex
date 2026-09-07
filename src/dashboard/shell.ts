@@ -340,8 +340,8 @@ async function loadNotifications() {
 }
 function openCommandPalette() {
   modal('<div class="command-palette"><h3>Command palette <span class="shortcut">ESC to close</span></h3><input id="palette-filter" class="topbar-search" style="width:100%;margin-bottom:12px" placeholder="Jump to a page or action..." autofocus><div class="command-list">'+
-    Object.keys(pages).map(name=>'<button onclick="navigateTo(\''+name+'\')">Open '+name.replace(/-/g,' ')+'<span class="shortcut">↵</span></button>').join('')+
-    '<button onclick="window.location.href=\'/dashboard/api/export/trades\'">Export trades CSV<span class="shortcut">CSV</span></button><button onclick="window.location.href=\'/dashboard/api/export/ledger\'">Export ledger CSV<span class="shortcut">CSV</span></button></div></div>');
+    Object.keys(pages).map(name=>'<button onclick="navigateTo(&quot;'+name+'&quot;)">Open '+name.replace(/-/g,' ')+'<span class="shortcut">↵</span></button>').join('')+
+    '<button onclick="window.location.href=&quot;/dashboard/api/export/trades&quot;">Export trades CSV<span class="shortcut">CSV</span></button><button onclick="window.location.href=&quot;/dashboard/api/export/ledger&quot;">Export ledger CSV<span class="shortcut">CSV</span></button></div></div>');
 }
 function navigateTo(name) { closeModal(); document.querySelectorAll('.nav-item[data-page]').forEach(b=>b.classList.toggle('active',b.dataset.page===name)); pages[name]?.(); }
 document.addEventListener('keydown',e=>{
@@ -473,7 +473,7 @@ async function runGlobalSearch(query) {
 let tradeFilter='', tradePage=0;
 async function loadTrades(p=0) {
   tradePage=p; topbar.textContent='Trades';
-  actions.innerHTML='<button class="btn btn-ghost btn-sm" onclick="exportCsv(\'trades\')">↓ CSV</button><button class="btn btn-danger btn-sm" onclick="bulkCancelTrades()">Cancel selected</button>';
+  actions.innerHTML='<button class="btn btn-ghost btn-sm" onclick="exportCsv(&quot;trades&quot;)">↓ CSV</button><button class="btn btn-danger btn-sm" onclick="bulkCancelTrades()">Cancel selected</button>';
   loading();
   const status = tradeFilter||'';
   const d = await api(\`/trades?status=\${status}&page=\${p}&limit=50\`);
@@ -709,7 +709,7 @@ async function doLedger(id, type) {
 // ─────────────────────────────────────────────────────────────
 let ledgerPage=0, ledgerAsset='', ledgerExchId='', ledgerFrom='', ledgerTo='';
 async function loadLedger(p=0) {
-  ledgerPage=p; topbar.textContent='Ledger'; actions.innerHTML='<button class="btn btn-ghost btn-sm" onclick="exportCsv(\'ledger\')">↓ CSV</button>';
+  ledgerPage=p; topbar.textContent='Ledger'; actions.innerHTML='<button class="btn btn-ghost btn-sm" onclick="exportCsv(&quot;ledger&quot;)">↓ CSV</button>';
   loading();
   const d = await api(\`/ledger?page=\${p}&limit=100&asset=\${ledgerAsset}&exchanger_id=\${ledgerExchId}&from=\${ledgerFrom}&to=\${ledgerTo}\`);
   page.innerHTML=\`
