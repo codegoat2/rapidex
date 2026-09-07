@@ -10,6 +10,7 @@ import { config } from '../config/env';
 import { data as verifyData } from './commands/verifyExchanger';
 import { data as profileData } from './commands/profile';
 import { data as setupPanelData } from './commands/setupPanel';
+import { data as helpData } from './commands/help';
 import { allAdminCommandData } from './commands/adminCommands';
 import { logger } from '../utils/logger';
 
@@ -17,6 +18,7 @@ const commands = [
   verifyData.toJSON(),
   profileData.toJSON(),
   setupPanelData.toJSON(),
+  helpData.toJSON(),
   ...allAdminCommandData.map(c => c.toJSON()),
 ];
 

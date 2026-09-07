@@ -7,6 +7,7 @@ import { logger } from '../../utils/logger';
 import { execute as executeVerify } from '../commands/verifyExchanger';
 import { execute as executeProfile } from '../commands/profile';
 import { execute as executeSetupPanel } from '../commands/setupPanel';
+import { execute as executeHelp } from '../commands/help';
 import {
   handleBalance,
   handleCredit,
@@ -27,6 +28,7 @@ export async function handleCommand(interaction: ChatInputCommandInteraction): P
       case 'verify-exchanger':   await executeVerify(interaction);       break;
       case 'profile':            await executeProfile(interaction);      break;
       case 'setup-panel':        await executeSetupPanel(interaction);   break;
+      case 'help':               await executeHelp(interaction);         break;
       case 'balance':            await handleBalance(interaction);       break;
       case 'credit':             await handleCredit(interaction);        break;
       case 'debit':              await handleDebit(interaction);         break;
