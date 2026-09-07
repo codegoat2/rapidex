@@ -189,6 +189,7 @@ async function handleTradeModal(
         fiatCurrency,
         fiatMethod,
         userNote,
+        amountIsFiat:  true,
       });
     } catch (err) {
       await interaction.editReply(`Could not get a quote: ${err instanceof Error ? err.message : String(err)}`);

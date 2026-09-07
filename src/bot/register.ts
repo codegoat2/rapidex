@@ -13,7 +13,7 @@ import { data as setupPanelData } from './commands/setupPanel';
 import { data as setupForumData } from './commands/setupForum';
 import { data as helpData } from './commands/help';
 import { allAdminCommandData } from './commands/adminCommands';
-import { depositAddressesCommand, myTradesCommand } from './commands/exchangerCommands';
+import { depositAddressesCommand, myTradesCommand, withdrawCommand } from './commands/exchangerCommands';
 import { logger } from '../utils/logger';
 
 const commands = [
@@ -24,6 +24,7 @@ const commands = [
   helpData.toJSON(),
   myTradesCommand.toJSON(),
   depositAddressesCommand.toJSON(),
+  withdrawCommand.toJSON(),
   ...allAdminCommandData.map(c => c.toJSON()),
 ];
 

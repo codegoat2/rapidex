@@ -406,15 +406,15 @@ async function showTradeModal(
     : isF2F
       ? 'Amount to send'
       : direction === 'BUY'
-        ? `Amount of ${param1} to buy`
-        : `Amount of ${param1} to sell`;
+        ? `Fiat amount to spend (${param1} value)`
+        : `Fiat amount to receive (${param1} value)`;
 
   const amountInput = new TextInputBuilder()
     .setCustomId('amount')
     .setLabel(amountLabel)
     .setStyle(TextInputStyle.Short)
     .setRequired(true)
-    .setPlaceholder(isF2F ? '500' : '0.05')
+    .setPlaceholder(isF2F ? '500' : '100')
     .setMaxLength(20);
 
   // Currency (not needed for pure SWAP)

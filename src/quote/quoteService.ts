@@ -3,7 +3,7 @@ import { ethers } from 'ethers';
 import { db } from '../db/client';
 import { config } from '../config/env';
 import { getSettingNumber } from '../admin/settingsService';
-import { maxDecimal, multiplyDecimal } from './money';
+import { divideDecimal, maxDecimal, multiplyDecimal } from './money';
 import type { Asset, FiatCurrency, FiatMethod, TradeDirection } from '../types';
 
 const QUOTE_TTL_SECONDS = 300;
@@ -48,6 +48,7 @@ export async function createTradeQuote(params: {
   fiatCurrency: FiatCurrency;
   fiatMethod: FiatMethod;
   userNote?: string | null;
+  amountIsFiat?: boolean;
 }): Promise<TradeQuote> {
   // Only BUY and SELL use live quotes
   if (params.direction !== 'BUY' && params.direction !== 'SELL') {
@@ -56,7 +57,9 @@ export async function createTradeQuote(params: {
 
   const minimum = await getSettingNumber('MIN_TRADE_AMOUNT', config.MIN_TRADE_AMOUNT);
   const maximum = await getSettingNumber('MAX_TRADE_AMOUNT', config.MAX_TRADE_AMOUNT);
-  const amountUnits = ethers.parseUnits(params.amount, 18);
+  const rate = await getRate(params.asset, params.fiatCurrency);
+  const cryptoAmount = params.amountIsFiat ? divideDecimal(params.amount, rate) : params.amount;
+  const amountUnits = ethers.parseUnits(cryptoAmount, 18);
 
   if (amountUnits < ethers.parseUnits(String(minimum), 18)) {
     throw new Error(`Trade amount is below the minimum of ${minimum}`);
@@ -65,16 +68,14 @@ export async function createTradeQuote(params: {
     throw new Error(`Trade amount is above the maximum of ${maximum}`);
   }
 
-  const rate = await getRate(params.asset, params.fiatCurrency);
-
   const [feeConfig] = await db<{ fee_percentage: string; min_fee_amount: string }[]>`
     SELECT fee_percentage, min_fee_amount FROM fee_config WHERE asset = ${params.asset}
   `;
 
   const feePercentage = feeConfig?.fee_percentage ?? '0';
   const minimumFee    = feeConfig?.min_fee_amount  ?? '0';
-  const feeAmount     = maxDecimal(multiplyDecimal(params.amount, feePercentage, 4), minimumFee);
-  const fiatAmount    = multiplyDecimal(params.amount, rate, 18);
+  const feeAmount     = maxDecimal(multiplyDecimal(cryptoAmount, feePercentage, 4), minimumFee);
+  const fiatAmount    = multiplyDecimal(cryptoAmount, rate, 18);
   const expiresAt     = new Date(Date.now() + QUOTE_TTL_SECONDS * 1000);
   const userNote      = params.userNote ?? null;
 
@@ -84,7 +85,7 @@ export async function createTradeQuote(params: {
       fiat_currency, fiat_method, fiat_amount, rate, rate_source,
       fee_percentage, fee_amount, expires_at, user_note
     ) VALUES (
-      ${params.userDiscordId}, ${params.asset}, ${params.amount}, ${params.direction},
+      ${params.userDiscordId}, ${params.asset}, ${cryptoAmount}, ${params.direction},
       ${params.fiatCurrency}, ${params.fiatMethod}, ${fiatAmount}, ${rate}, 'COINGECKO',
       ${feePercentage}, ${feeAmount}, ${expiresAt.toISOString()}, ${userNote}
     )
@@ -94,7 +95,7 @@ export async function createTradeQuote(params: {
   return {
     id: row.id,
     asset: params.asset,
-    amount: params.amount,
+    amount: cryptoAmount,
     direction: params.direction,
     fiatCurrency: params.fiatCurrency,
     fiatMethod: params.fiatMethod,

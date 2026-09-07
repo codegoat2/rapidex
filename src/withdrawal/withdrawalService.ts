@@ -2,7 +2,7 @@ import { db } from '../db/client';
 import type { Asset } from '../types';
 
 export async function queueWithdrawal(params: {
-  tradeId: string;
+  tradeId: string | null;
   exchangerId: string;
   asset: Asset;
   amount: string;

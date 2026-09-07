@@ -232,7 +232,7 @@ router.get('/withdrawals', async (req: Request, res: Response) => {
     const rows = await db`
       SELECT w.*, t.user_discord_id, t.status AS trade_status
       FROM withdrawals w
-      JOIN trades t ON t.id = w.trade_id
+      LEFT JOIN trades t ON t.id = w.trade_id
       ${status ? db`WHERE w.status=${status}` : db``}
       ORDER BY w.created_at DESC LIMIT 200
     `;

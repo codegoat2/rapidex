@@ -151,6 +151,35 @@ export async function sendTradePayment(
   void waitForConfirmations(updated, exchangerId, txId);
 }
 
+/** Sends a standalone exchanger withdrawal that has already reserved balance. */
+export async function sendExchangerWithdrawal(params: {
+  withdrawalId: string;
+  exchangerId: string;
+  asset: Asset;
+  amount: string;
+  destination: string;
+}): Promise<string> {
+  const derivationPath = await getDerivationPath(params.exchangerId, params.asset);
+  if (!derivationPath) throw new Error(`No derivation path for ${params.asset}`);
+
+  const payment = {
+    id: params.withdrawalId,
+    asset: params.asset,
+    amount: params.amount,
+    user_wallet_address: params.destination,
+  } as DbTrade;
+
+  switch (params.asset) {
+    case 'BTC':        return sendBtcLtc(payment, derivationPath, 'bitcoin');
+    case 'LTC':        return sendBtcLtc(payment, derivationPath, 'litecoin');
+    case 'ETH':        return sendEth(payment, derivationPath);
+    case 'SOL':        return sendSol(payment, derivationPath);
+    case 'BNB':        return sendBnb(payment, derivationPath);
+    case 'USDT_BEP20': return sendBep20(payment, derivationPath);
+    default:           throw new Error(`Unsupported asset: ${String(params.asset)}`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // BTC / LTC — NOWNodes Blockbook
 // ---------------------------------------------------------------------------
