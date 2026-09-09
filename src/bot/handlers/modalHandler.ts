@@ -205,31 +205,31 @@ async function handleTradeModal(
 
     const quoteEmbed = new EmbedBuilder()
       .setColor(COLORS.PRIMARY)
-      .setTitle('⚡ Confirm Your Quote')
+      .setTitle('<:Arrow:1547330759571017768> Confirm Your Quote')
       .setDescription('This quote is locked for **5 minutes**. Confirm to open your private trade ticket.')
       .addFields(
         {
-          name:   tradeDirection === 'BUY' ? '💰 You Pay' : '💰 You Receive',
+          name:   tradeDirection === 'BUY' ? '<:DebtCard:1547332209684381756> You Pay' : '<:DebtCard:1547332209684381756> You Receive',
           value:  `\`${sym}${parseFloat(quote.fiatAmount).toFixed(2)} ${quote.fiatCurrency}\``,
           inline: true,
         },
         {
-          name:   tradeDirection === 'BUY' ? '📦 You Receive' : '📦 You Send',
+          name:   tradeDirection === 'BUY' ? '<:emojigg_Buy:1547330997002043404> You Receive' : '<:Arrow:1547330759571017768> You Send',
           value:  `\`${parseFloat(quote.amount).toFixed(8)} ${quote.asset}\``,
           inline: true,
         },
         {
-          name:   '🏷️ Fee',
+          name:   '<:Arrow:1547330759571017768> Fee',
           value:  `\`${sym}${fiatFeeAmount} (${quote.feePercentage}%)\``,
           inline: true,
         },
         {
-          name:   '💳 Payment Method',
+          name:   '<:DebtCard:1547332209684381756> Payment Method',
           value:  fiatMethodLabel(quote.fiatMethod),
           inline: true,
         },
         {
-          name:   '⏱️ Quote Expires',
+          name:   '<:Arrow:1547330759571017768> Quote Expires',
           value:  `<t:${Math.floor(quote.expiresAt.getTime() / 1000)}:R>`,
           inline: true,
         },
@@ -237,18 +237,18 @@ async function handleTradeModal(
       .setFooter({ text: 'RapidEx · Rates from CoinGecko · Locked for 5 min' })
       .setTimestamp();
 
-    if (userNote) quoteEmbed.addFields({ name: '📝 Note', value: userNote, inline: false });
+    if (userNote) quoteEmbed.addFields({ name: '<:Arrow:1547330759571017768> Note', value: userNote, inline: false });
 
     await interaction.editReply({
       embeds: [quoteEmbed],
       components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()
           .setCustomId(`quote_confirm:${quote.id}`)
-          .setLabel('✅ Confirm — Open Ticket')
+          .setLabel('Confirm — Open Ticket')
           .setStyle(ButtonStyle.Success),
         new ButtonBuilder()
           .setCustomId(`quote_cancel:${quote.id}`)
-          .setLabel('✖ Cancel')
+          .setLabel('Cancel')
           .setStyle(ButtonStyle.Secondary),
       )],
     });
@@ -266,24 +266,24 @@ async function handleTradeModal(
 
   const confirmEmbed = new EmbedBuilder()
     .setColor(COLORS.PRIMARY)
-    .setTitle(tradeDirection === 'SWAP' ? '🔄 Confirm Swap' : '💱 Confirm Fiat to Fiat')
+    .setTitle(tradeDirection === 'SWAP' ? '<:Arrow:1547330759571017768> Confirm Swap' : '<:DebtCard:1547332209684381756> Confirm Fiat to Fiat')
     .setDescription('Confirm to open your private trade ticket with a verified exchanger.')
     .addFields(
       tradeDirection === 'SWAP'
         ? [
-            { name: '📤 You Send',    value: `\`${rawAmount} ${param1}\` — ${assetLabel(param1)}`,  inline: true },
-            { name: '📥 You Receive', value: assetLabel(param2),                                    inline: true },
+            { name: '<:Arrow:1547330759571017768> You Send',    value: `\`${rawAmount} ${param1}\` — ${assetLabel(param1)}`,  inline: true },
+            { name: '<:emojigg_Buy:1547330997002043404> You Receive', value: assetLabel(param2),                              inline: true },
           ]
         : [
-            { name: '💰 Amount',      value: `\`${sym}${rawAmount}\``,                             inline: true },
-            { name: '📤 Send Via',    value: fiatMethodLabel(param1),                               inline: true },
-            { name: '📥 Receive Via', value: fiatMethodLabel(param2),                               inline: true },
+            { name: '<:DebtCard:1547332209684381756> Amount',   value: `\`${sym}${rawAmount}\``,                             inline: true },
+            { name: '<:Arrow:1547330759571017768> Send Via',    value: fiatMethodLabel(param1),                               inline: true },
+            { name: '<:emojigg_Buy:1547330997002043404> Receive Via', value: fiatMethodLabel(param2),                        inline: true },
           ],
     )
     .setFooter({ text: 'RapidEx · Private Tickets · Verified Exchangers' })
     .setTimestamp();
 
-  if (userNote) confirmEmbed.addFields({ name: '📝 Note', value: userNote, inline: false });
+  if (userNote) confirmEmbed.addFields({ name: '<:Arrow:1547330759571017768> Note', value: userNote, inline: false });
 
   // Encode the trade params into the button customId for retrieval on confirm
   const encoded = encodeURIComponent(JSON.stringify({
@@ -302,11 +302,11 @@ async function handleTradeModal(
     components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(`noq_confirm:${encoded}`)
-        .setLabel('✅ Confirm — Open Ticket')
+        .setLabel('Confirm — Open Ticket')
         .setStyle(ButtonStyle.Success),
       new ButtonBuilder()
         .setCustomId(`quote_cancel:noquote`)
-        .setLabel('✖ Cancel')
+        .setLabel('Cancel')
         .setStyle(ButtonStyle.Secondary),
     )],
   });

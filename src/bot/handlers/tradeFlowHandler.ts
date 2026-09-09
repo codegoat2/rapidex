@@ -196,13 +196,13 @@ export async function handleFiatSent(
   if (channel) {
     const embed = new EmbedBuilder()
       .setColor(COLORS.ESCROW)
-      .setTitle('💳 Payment Sent — Awaiting Release')
+      .setTitle('<:DebtCard:1547332209684381756> Payment Sent — Awaiting Release')
       .setDescription(
         `<@${interaction.user.id}> has confirmed payment was sent.\n\n` +
         `**Exchanger** — verify receipt then choose how to release below.\n\n` +
-        `> 🏦 **Internal Wallet** — release directly from the bot's hot wallet\n` +
-        `> 📤 **External / Manual** — you'll send manually; bot will confirm with the buyer\n` +
-        `> ⚠️ **Dispute** — open a dispute for admin review`,
+        `> <:lock:1547331951877165128> **Internal Wallet** — release directly from the bot's hot wallet\n` +
+        `> <:Arrow:1547330759571017768> **External / Manual** — you'll send manually; bot will confirm with the buyer\n` +
+        `> <:emojigg_no:1547332976201830441> **Dispute** — open a dispute for admin review`,
       )
       .addFields({ name: 'Trade ID', value: `\`${trade.id}\``, inline: true })
       .setTimestamp();
@@ -322,7 +322,7 @@ export async function handleDispute(
     });
   }
 
-  await interaction.editReply('⚠️ Dispute raised. An admin has been notified.');
+  await interaction.editReply('<:emojigg_no:1547332976201830441> Dispute raised. An admin has been notified.');
 
   void notifyAsync('notifyDisputeRaised', trade.id, interaction.user.id);
 
@@ -347,18 +347,6 @@ export async function handleForceReleaseConfirm(
     .setColor(COLORS.WARNING)
     .setTitle('Confirm Force Release')
     .setDescription(`This will send **${trade.amount} ${trade.asset}** to the user's wallet.\nAre you sure?`);
-
-  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`confirm_force_release:${tradeId}`)
-      .setLabel('Yes, Force Release')
-      .setStyle(ButtonStyle.Danger),
-  );
-
-  await interaction.editReply({ embeds: [embed], components: [row] });
-}
-
-export async function handleForceRelease(
   interaction: ButtonInteraction,
   tradeId: string,
 ): Promise<void> {
@@ -466,7 +454,7 @@ export async function handleForceCancel(
     });
   }
 
-  await interaction.editReply('✅ Trade force-cancelled. Escrow returned to exchanger.');
+  await interaction.editReply('<:GreenCheckmark:1547332810048667659> Trade force-cancelled. Escrow returned to exchanger.');
   await db_auditLog(interaction.user.id, trade.user_discord_id, 'FORCE_CANCEL', 'trade', trade.id);
 }
 
@@ -489,7 +477,7 @@ async function sendCryptoAsync(
     try {
       const { sendAdminAlert } = await import('../../notifications/notificationService');
       await sendAdminAlert(
-        `⚠️ TX FAILED for trade \`${trade.id}\`\nAsset: ${trade.asset} | Amount: ${trade.amount}\nError: ${String(err)}`,
+        `<:emojigg_no:1547332976201830441> TX FAILED for trade \`${trade.id}\`\nAsset: ${trade.asset} | Amount: ${trade.amount}\nError: ${String(err)}`,
       );
     } catch { /* non-fatal */ }
   }
@@ -590,7 +578,7 @@ export async function handleTermsDecline(
     embeds: [
       new EmbedBuilder()
         .setColor(COLORS.ERROR)
-        .setTitle('❌ Terms Declined')
+        .setTitle('<:emojigg_no:1547332976201830441> Terms Declined')
         .setDescription('You declined the exchanger\'s Terms & Conditions. This exchanger cannot claim your trade.\n\nAnother exchanger will be able to pick it up, or you may open a new trade.')
         .setTimestamp(),
     ],
@@ -733,7 +721,7 @@ export async function handleExternalPaymentReceived(
   if (channel) {
     const embed = new EmbedBuilder()
       .setColor(COLORS.COMPLETED)
-      .setTitle('✅ Trade Completed')
+      .setTitle('<:GreenCheckmark:1547332810048667659> Trade Completed')
       .setDescription(
         `<@${interaction.user.id}> confirmed they received the payment.\n\n` +
         `This trade is now complete. Thank you for using RapidEx!`,
@@ -747,7 +735,7 @@ export async function handleExternalPaymentReceived(
     await channel.send({ embeds: [embed] });
   }
 
-  await interaction.editReply('✅ Trade marked complete. Thank you!');
+  await interaction.editReply('<:GreenCheckmark:1547332810048667659> Trade marked complete. Thank you!');
   void notifyAsync('notifyTradeCompleted', trade.id, interaction.user.id);
   logger.info({ tradeId: trade.id }, 'External trade completed by buyer confirmation');
 }
@@ -785,7 +773,7 @@ export async function handleExternalPaymentNotReceived(
     const roleId = await getRoleAdmin();
     const embed  = new EmbedBuilder()
       .setColor(COLORS.DISPUTED)
-      .setTitle('⚠️ Dispute — Payment Not Received')
+      .setTitle('<:emojigg_no:1547332976201830441> Dispute — Payment Not Received')
       .setDescription(
         `<@${interaction.user.id}> has reported they **did not receive** the payment.\n\n` +
         `${roleId ? `<@&${roleId}>` : '@here'} please review this trade.`,
@@ -811,7 +799,7 @@ export async function handleExternalPaymentNotReceived(
     });
   }
 
-  await interaction.editReply('⚠️ Dispute raised. An admin has been notified.');
+  await interaction.editReply('<:emojigg_no:1547332976201830441> Dispute raised. An admin has been notified.');
   void notifyAsync('notifyDisputeRaised', trade.id, interaction.user.id);
   logger.warn({ tradeId: trade.id }, 'External trade disputed — buyer did not receive');
 }

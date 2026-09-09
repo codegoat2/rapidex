@@ -23,8 +23,12 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
   const channel = interaction.channel as TextChannel;
 
+  // Fetch the guild's icon URL for the panel thumbnail
+  const guild = interaction.guild;
+  const guildIconUrl = guild?.iconURL({ size: 256, extension: 'png' }) ?? null;
+
   const msg = await channel.send({
-    embeds:     [buildPanelEmbed()],
+    embeds:     [buildPanelEmbed(guildIconUrl)],
     components: [buildPanelRow()],
   });
 
@@ -40,5 +44,5 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     )
   `;
 
-  await interaction.editReply(`✅ Trade panel deployed in <#${channel.id}>.`);
+  await interaction.editReply(`<:GreenCheckmark:1547332810048667659> Trade panel deployed in <#${channel.id}>.`);
 }

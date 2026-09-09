@@ -71,7 +71,7 @@ export async function handleMyTrades(interaction: ChatInputCommandInteraction): 
     embeds: [
       new EmbedBuilder()
         .setColor(COLORS.PRIMARY)
-        .setTitle('📋 My Trades')
+        .setTitle('<:Arrow:1547330759571017768> My Trades')
         .setDescription(description)
         .setFooter({ text: `${profile.exchanger.discord_username} · Last 20 trades` })
         .setTimestamp(),
@@ -91,7 +91,7 @@ export async function handleDepositAddresses(interaction: ChatInputCommandIntera
     `**${address.asset}**\n\`${address.address}\``,
   ).join('\n\n') || '_No deposit addresses provisioned_';
   await interaction.editReply({
-    embeds: [new EmbedBuilder().setColor(COLORS.PRIMARY).setTitle('📬 Deposit Addresses').setDescription(description)],
+    embeds: [new EmbedBuilder().setColor(COLORS.PRIMARY).setTitle('<:Arrow:1547330759571017768> Deposit Addresses').setDescription(description)],
   });
 }
 
@@ -205,7 +205,7 @@ export async function handleSetTermsModal(interaction: ModalSubmitInteraction): 
     embeds: [
       new EmbedBuilder()
         .setColor(COLORS.SUCCESS)
-        .setTitle('✅ Terms & Conditions Updated')
+        .setTitle('<:GreenCheckmark:1547332810048667659> Terms & Conditions Updated')
         .setDescription('Your T&C are now active. Buyers will be required to accept them before you can claim their trade.')
         .addFields({ name: 'Your Terms', value: terms.slice(0, 1024) })
         .setTimestamp(),
@@ -234,7 +234,7 @@ export async function handleMyTerms(interaction: ChatInputCommandInteraction): P
       embeds: [
         new EmbedBuilder()
           .setColor(COLORS.INFO)
-          .setTitle('📋 Your Terms & Conditions')
+          .setTitle('<:Arrow:1547330759571017768> Your Terms & Conditions')
           .setDescription('You have not set any Terms & Conditions yet.\nUse `/set-terms` to create them.')
           .setTimestamp(),
       ],
@@ -246,7 +246,7 @@ export async function handleMyTerms(interaction: ChatInputCommandInteraction): P
     embeds: [
       new EmbedBuilder()
         .setColor(COLORS.PRIMARY)
-        .setTitle('📋 Your Terms & Conditions')
+        .setTitle('<:Arrow:1547330759571017768> Your Terms & Conditions')
         .setDescription(terms)
         .setFooter({ text: 'Use /set-terms to update' })
         .setTimestamp(),

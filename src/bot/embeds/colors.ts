@@ -1,11 +1,11 @@
-/** Brand colors used across all RapidEx embeds. */
+/** Brand colors used across all RapidEx embeds. Orange & black theme. */
 export const COLORS = {
-  PRIMARY:   0x5865F2 as const,  // Discord Blurple
-  SUCCESS:   0x57F287 as const,  // Green
-  WARNING:   0xFEE75C as const,  // Yellow
-  ERROR:     0xED4245 as const,  // Red
-  INFO:      0x5DADE2 as const,  // Blue
-  ESCROW:    0xEB984E as const,  // Orange — funds locked
-  COMPLETED: 0x1ABC9C as const,  // Teal
-  DISPUTED:  0xE74C3C as const,  // Bright red
+  PRIMARY:   0xFF6B00 as const,  // RapidEx orange
+  SUCCESS:   0xFF8C00 as const,  // Amber orange — positive actions
+  WARNING:   0xFFB347 as const,  // Light orange — attention
+  ERROR:     0xED4245 as const,  // Red — errors / cancellations
+  INFO:      0xFF6B00 as const,  // Orange — informational
+  ESCROW:    0xE65C00 as const,  // Deep orange — funds locked
+  COMPLETED: 0xFF6B00 as const,  // Orange — completed
+  DISPUTED:  0xED4245 as const,  // Red — disputes
 } as const;

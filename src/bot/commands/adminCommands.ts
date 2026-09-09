@@ -145,7 +145,7 @@ export async function handleBalance(interaction: ChatInputCommandInteraction): P
     embeds: [
       new EmbedBuilder()
         .setColor(COLORS.PRIMARY)
-        .setTitle(`💰 Balance — ${exchanger.discord_username}`)
+        .setTitle(`<:DebtCard:1547332209684381756> Balance — ${exchanger.discord_username}`)
         .setDescription(lines || '_No balances_')
         .setTimestamp(),
     ],
@@ -185,7 +185,7 @@ export async function handleCredit(interaction: ChatInputCommandInteraction): Pr
   await interaction.editReply({
     embeds: [
       new EmbedBuilder().setColor(COLORS.SUCCESS)
-        .setTitle('✅ Credit Applied')
+        .setTitle('<:GreenCheckmark:1547332810048667659> Credit Applied')
         .addFields(
           { name: 'User',      value: `<@${target.id}>`,                    inline: true },
           { name: 'Asset',     value: asset,                                 inline: true },
@@ -235,7 +235,7 @@ export async function handleDebit(interaction: ChatInputCommandInteraction): Pro
   await interaction.editReply({
     embeds: [
       new EmbedBuilder().setColor(COLORS.WARNING)
-        .setTitle('⚠️ Debit Applied')
+        .setTitle('<:emojigg_no:1547332976201830441> Debit Applied')
         .addFields(
           { name: 'User',        value: `<@${target.id}>`,                    inline: true },
           { name: 'Asset',       value: asset,                                 inline: true },
@@ -269,7 +269,7 @@ export async function handleTrades(interaction: ChatInputCommandInteraction): Pr
   await interaction.editReply({
     embeds: [
       new EmbedBuilder().setColor(COLORS.INFO)
-        .setTitle(`📋 Trades — ${status} (${trades.length})`)
+        .setTitle(`<:Arrow:1547330759571017768> Trades — ${status} (${trades.length})`)
         .setDescription(lines)
         .setTimestamp(),
     ],
@@ -290,7 +290,7 @@ export async function handleCloseTicket(interaction: ChatInputCommandInteraction
       await channel.send({
         embeds: [
           new EmbedBuilder().setColor(COLORS.ERROR)
-            .setTitle('🔒 Ticket Closed by Admin')
+            .setTitle('<:lock:1547331951877165128> Ticket Closed by Admin')
             .setDescription(`Closed by <@${interaction.user.id}>`)
             .setTimestamp(),
         ],
@@ -330,7 +330,7 @@ export async function handleSetFee(interaction: ChatInputCommandInteraction): Pr
   await interaction.editReply({
     embeds: [
       new EmbedBuilder().setColor(COLORS.SUCCESS)
-        .setTitle('✅ Fee Updated')
+        .setTitle('<:GreenCheckmark:1547332810048667659> Fee Updated')
         .addFields(
           { name: 'Asset', value: asset, inline: true },
           { name: 'New Fee', value: `${pct}%`, inline: true },
@@ -366,7 +366,7 @@ export async function handleAuditLog(interaction: ChatInputCommandInteraction): 
   await interaction.editReply({
     embeds: [
       new EmbedBuilder().setColor(COLORS.INFO)
-        .setTitle(`📜 Audit Log${target ? ` — @${target.username}` : ' (Recent)'}`)
+        .setTitle(`<:Arrow:1547330759571017768> Audit Log${target ? ` — @${target.username}` : ' (Recent)'}`)
         .setDescription(lines || '_No entries_')
         .setTimestamp(),
     ],
@@ -393,14 +393,14 @@ export async function handleHotWalletBalance(interaction: ChatInputCommandIntera
   const lines = rows.map(r => {
     const bal   = parseFloat(r.balance);
     const min   = thresholds[r.asset];
-    const warn  = min !== undefined && bal < min ? ' ⚠️ LOW' : '';
+    const warn  = min !== undefined && bal < min ? ' <:emojigg_no:1547332976201830441> LOW' : '';
     return `**${r.asset}**${warn}\n\`${bal.toFixed(8)}\` — \`${r.address.slice(0, 20)}...\``;
   }).join('\n\n') || '_No hot wallet data_';
 
   await interaction.editReply({
     embeds: [
       new EmbedBuilder().setColor(COLORS.INFO)
-        .setTitle('🏦 Hot Wallet Balances')
+        .setTitle('<:DebtCard:1547332209684381756> Hot Wallet Balances')
         .setDescription(lines)
         .setTimestamp(),
     ],
@@ -431,7 +431,7 @@ export async function handleBan(interaction: ChatInputCommandInteraction): Promi
     await interaction.editReply({
       embeds: [
         new EmbedBuilder().setColor(COLORS.ERROR)
-          .setTitle('⛔ Exchanger Banned')
+          .setTitle('<:emojigg_no:1547332976201830441> Exchanger Banned')
           .addFields(
             { name: 'User',   value: `<@${target.id}>`, inline: true },
             { name: 'Reason', value: reason,             inline: false },
@@ -472,7 +472,7 @@ export async function handleUnban(interaction: ChatInputCommandInteraction): Pro
     await interaction.editReply({
       embeds: [
         new EmbedBuilder().setColor(COLORS.SUCCESS)
-          .setTitle('✅ Exchanger Unbanned')
+          .setTitle('<:GreenCheckmark:1547332810048667659> Exchanger Unbanned')
           .addFields(
             { name: 'User',   value: `<@${target.id}>`,                    inline: true },
             { name: 'Status', value: 'Reactivated — can claim trades again', inline: true },

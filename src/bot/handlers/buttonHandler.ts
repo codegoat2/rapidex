@@ -51,19 +51,25 @@ import { logger } from '../../utils/logger';
 // ---------------------------------------------------------------------------
 
 const E = {
-  BTC:     '<:1425bitcoin:1546527437406343299>',
-  LTC:     '<:2625crypto:1546528103176601712>',
-  ETH:     '<:3031ethereum:1546527560328941669>',
-  SOL:     '<:19845solana:1546527612694831184>',
-  USDT:    '<:7541tetherusdt:1546527696937291796>',
-  REVOLUT: '<:6383revolut:1546528170130407564>',
-  BANK:    '<:bank:1546528985406636113>',
-  BINANCE: '<:Binance:1546528855886659678>',
-  PAYSAFE: '<:3459paysafecard:1546531852414623774>',
-  APPLE:   '<:9823applepaylogo:1546528385470304276>',
-  CASHAPP: '<:55778cashapp:1546528307242340462>',
-  PAYPAL:  '<:51891paypal:1546528262531059825>',
-  VENMO:   '<:29806venmo:1546528223695741059>',
+  BTC:      '<:1425bitcoin:1546527437406343299>',
+  LTC:      '<:2625crypto:1546528103176601712>',
+  ETH:      '<:3031ethereum:1546527560328941669>',
+  SOL:      '<:19845solana:1546527612694831184>',
+  USDT:     '<:7541tetherusdt:1546527696937291796>',
+  REVOLUT:  '<:6383revolut:1546528170130407564>',
+  BANK:     '<:bank:1546528985406636113>',
+  BINANCE:  '<:Binance:1546528855886659678>',
+  PAYSAFE:  '<:3459paysafecard:1546531852414623774>',
+  APPLE:    '<:9823applepaylogo:1546528385470304276>',
+  CASHAPP:  '<:55778cashapp:1546528307242340462>',
+  PAYPAL:   '<:51891paypal:1546528262531059825>',
+  VENMO:    '<:29806venmo:1546528223695741059>',
+  DEBTCARD: '<:DebtCard:1547332209684381756>',
+  LOCK:     '<:lock:1547331951877165128>',
+  ARROW:    '<:Arrow:1547330759571017768>',
+  BUY:      '<:emojigg_Buy:1547330997002043404>',
+  CHECK:    '<:GreenCheckmark:1547332810048667659>',
+  NO:       '<:emojigg_no:1547332976201830441>',
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -371,19 +377,23 @@ async function handleStartExchange(interaction: ButtonInteraction): Promise<void
       new StringSelectMenuOptionBuilder()
         .setLabel('Buy')
         .setDescription('Purchase crypto with fiat')
-        .setValue('BUY'),
+        .setValue('BUY')
+        .setEmoji(E.BUY),
       new StringSelectMenuOptionBuilder()
         .setLabel('Sell')
         .setDescription('Sell crypto for fiat')
-        .setValue('SELL'),
+        .setValue('SELL')
+        .setEmoji(E.ARROW),
       new StringSelectMenuOptionBuilder()
         .setLabel('Swap')
         .setDescription('Exchange one crypto for another')
-        .setValue('SWAP'),
+        .setValue('SWAP')
+        .setEmoji(E.ARROW),
       new StringSelectMenuOptionBuilder()
         .setLabel('Fiat to Fiat')
         .setDescription('Convert between payment methods')
-        .setValue('FIAT_TO_FIAT'),
+        .setValue('FIAT_TO_FIAT')
+        .setEmoji(E.DEBTCARD),
     );
 
   await interaction.reply({

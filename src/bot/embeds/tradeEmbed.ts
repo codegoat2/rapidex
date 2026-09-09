@@ -2,10 +2,11 @@
  * Shared embed builders for all trade-related Discord messages.
  *
  * Design principles:
- *  - Every embed has a clear header, structured fields, and a footer
- *  - Status is always visible with an icon + color
- *  - Amounts are always monospaced with full precision
- *  - Timestamps on every embed
+ *  - Fiat amount is always the primary display (what you pay/receive in fiat)
+ *  - Crypto amount is secondary context
+ *  - Fees expressed in fiat
+ *  - Orange & black brand theme throughout
+ *  - Server icon on panel embed thumbnail
  */
 
 import {
@@ -22,18 +23,24 @@ import type { DbTrade } from '../../types';
 // ---------------------------------------------------------------------------
 
 const E = {
-  BTC:     '<:1425bitcoin:1546527437406343299>',
-  LTC:     '<:2625crypto:1546528103176601712>',
-  ETH:     '<:3031ethereum:1546527560328941669>',
-  SOL:     '<:19845solana:1546527612694831184>',
-  USDT:    '<:7541tetherusdt:1546527696937291796>',
-  REVOLUT: '<:6383revolut:1546528170130407564>',
-  BANK:    '<:bank:1546528985406636113>',
-  BINANCE: '<:Binance:1546528855886659678>',
-  PAYSAFE: '<:3459paysafecard:1546531852414623774>',
-  APPLE:   '<:9823applepaylogo:1546528385470304276>',
-  CASHAPP: '<:55778cashapp:1546528307242340462>',
-  PAYPAL:  '<:51891paypal:1546528262531059825>',
+  BTC:      '<:1425bitcoin:1546527437406343299>',
+  LTC:      '<:2625crypto:1546528103176601712>',
+  ETH:      '<:3031ethereum:1546527560328941669>',
+  SOL:      '<:19845solana:1546527612694831184>',
+  USDT:     '<:7541tetherusdt:1546527696937291796>',
+  REVOLUT:  '<:6383revolut:1546528170130407564>',
+  BANK:     '<:bank:1546528985406636113>',
+  BINANCE:  '<:Binance:1546528855886659678>',
+  PAYSAFE:  '<:3459paysafecard:1546531852414623774>',
+  APPLE:    '<:9823applepaylogo:1546528385470304276>',
+  CASHAPP:  '<:55778cashapp:1546528307242340462>',
+  PAYPAL:   '<:51891paypal:1546528262531059825>',
+  DEBTCARD: '<:DebtCard:1547332209684381756>',
+  LOCK:     '<:lock:1547331951877165128>',
+  ARROW:    '<:Arrow:1547330759571017768>',
+  BUY:      '<:emojigg_Buy:1547330997002043404>',
+  CHECK:    '<:GreenCheckmark:1547332810048667659>',
+  NO:       '<:emojigg_no:1547332976201830441>',
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -44,14 +51,14 @@ export function fiatMethodLabel(method: string): string {
   const MAP: Record<string, string> = {
     BANK_TRANSFER:     `${E.BANK} Bank Transfer`,
     REVOLUT:           `${E.REVOLUT} Revolut`,
-    WISE:              '🏦 Wise',
+    WISE:              `${E.DEBTCARD} Wise`,
     PAYPAL:            `${E.PAYPAL} PayPal`,
-    CASH_IN_PERSON:    '💵 Cash in Person',
+    CASH_IN_PERSON:    `${E.DEBTCARD} Cash in Person`,
     BINANCE_GIFT_CARD: `${E.BINANCE} Binance Gift Card`,
     PAYSAFE:           `${E.PAYSAFE} Paysafe Card`,
     APPLE_PAY:         `${E.APPLE} Apple Pay`,
     CASHAPP:           `${E.CASHAPP} CashApp`,
-    OTHER:             '💳 Other',
+    OTHER:             `${E.DEBTCARD} Other`,
   };
   return MAP[method] ?? method.replace(/_/g, ' ');
 }
@@ -63,9 +70,38 @@ export function assetLabel(asset: string): string {
     ETH:        `${E.ETH} Ethereum (ETH)`,
     SOL:        `${E.SOL} Solana (SOL)`,
     USDT_BEP20: `${E.USDT} USDT (BSC)`,
-    BNB:        '🟡 BNB (BSC)',
+    BNB:        `${E.ARROW} BNB (BSC)`,
   };
   return MAP[asset] ?? asset;
+}
+
+// ---------------------------------------------------------------------------
+// Fiat helpers
+// ---------------------------------------------------------------------------
+
+/** Format a fiat amount + currency symbol, e.g. "€ 250.00" */
+function fiatDisplay(amount: string, currency: string): string {
+  const SYMBOLS: Record<string, string> = { EUR: '€', USD: '$', GBP: '£' };
+  const sym = SYMBOLS[currency] ?? currency;
+  return `${sym}${parseFloat(amount).toFixed(2)}`;
+}
+
+/**
+ * Compute fee in fiat: feeAmount (crypto) × rate → fiat.
+ * Returns null if rate is unavailable.
+ */
+function feeInFiat(
+  feeAmount: string | null,
+  rate: string | null,
+  currency: string,
+  feePercentage: string | null,
+): string | null {
+  if (!feeAmount || !rate) return null;
+  const fiatFee = parseFloat(feeAmount) * parseFloat(rate);
+  const pct = feePercentage ? ` (${feePercentage}%)` : '';
+  const SYMBOLS: Record<string, string> = { EUR: '€', USD: '$', GBP: '£' };
+  const sym = SYMBOLS[currency] ?? currency;
+  return `${sym}${fiatFee.toFixed(2)}${pct}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,17 +109,17 @@ export function assetLabel(asset: string): string {
 // ---------------------------------------------------------------------------
 
 const STATUS_ICONS: Record<string, string> = {
-  OPEN:            '🟢',
-  CLAIMED:         '🔵',
-  FIAT_PENDING:    '🟡',
-  FIAT_SENT:       '🟠',
-  RELEASE_PENDING: '⏳',
-  CRYPTO_SENT:     '🚀',
-  COMPLETED:       '✅',
-  CANCELLED:       '❌',
-  DISPUTED:        '⚠️',
-  EXPIRED:         '⏰',
-  FAILED:          '🔴',
+  OPEN:            `${E.ARROW}`,
+  CLAIMED:         `${E.BUY}`,
+  FIAT_PENDING:    `${E.DEBTCARD}`,
+  FIAT_SENT:       `${E.ARROW}`,
+  RELEASE_PENDING: `${E.LOCK}`,
+  CRYPTO_SENT:     `${E.ARROW}`,
+  COMPLETED:       `${E.CHECK}`,
+  CANCELLED:       `${E.NO}`,
+  DISPUTED:        `${E.NO}`,
+  EXPIRED:         `${E.NO}`,
+  FAILED:          `${E.NO}`,
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -115,10 +151,10 @@ const STATUS_COLORS: Record<string, number> = {
 };
 
 const DIRECTION_ICONS: Record<string, string> = {
-  BUY:         '📥',
-  SELL:        '📤',
-  SWAP:        '🔄',
-  FIAT_TO_FIAT:'💱',
+  BUY:          `${E.BUY}`,
+  SELL:         `${E.ARROW}`,
+  SWAP:         `${E.ARROW}`,
+  FIAT_TO_FIAT: `${E.DEBTCARD}`,
 };
 
 const DIRECTION_LABELS: Record<string, string> = {
@@ -129,7 +165,7 @@ const DIRECTION_LABELS: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Main trade ticket embed
+// Main trade ticket embed  (fiat-first)
 // ---------------------------------------------------------------------------
 
 export function buildTradeEmbed(trade: DbTrade, exchangerUsername?: string): EmbedBuilder {
@@ -143,92 +179,109 @@ export function buildTradeEmbed(trade: DbTrade, exchangerUsername?: string): Emb
     .setColor(color)
     .setTitle(`${dirIcon} RapidEx — ${dirLabel}`)
     .setDescription(
-      `**Status:** ${statusIcon} ${statusLabel}\n` +
-      `**Trade ID:** \`${trade.id}\``,
+      `${statusIcon} **${statusLabel}**\n` +
+      `\`\`\`${trade.id}\`\`\``,
     );
 
-  // ── Direction-specific trade fields ──────────────────────────────────────
+  // ── BUY: user pays fiat, receives crypto ──────────────────────────────────
   if (trade.direction === 'BUY') {
-    embed.addFields(
-      { name: '📦 You Receive',    value: assetLabel(trade.asset),              inline: true },
-      { name: '💳 Payment Method', value: fiatMethodLabel(trade.fiat_method),   inline: true },
-      { name: '🔢 Crypto Amount',  value: `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``, inline: true },
-    );
+    // Primary: fiat amount they pay
     if (trade.fiat_amount) {
-      embed.addFields(
-        { name: '💰 Fiat Total', value: `\`${parseFloat(trade.fiat_amount).toFixed(2)} ${trade.fiat_currency}\``, inline: true },
-      );
+      embed.addFields({
+        name:   `${E.DEBTCARD} You Pay`,
+        value:  `\`${fiatDisplay(trade.fiat_amount, trade.fiat_currency)}\``,
+        inline: true,
+      });
+    } else {
+      embed.addFields({ name: `${E.DEBTCARD} You Pay`, value: `\`? ${trade.fiat_currency}\``, inline: true });
     }
-    if (trade.rate) {
-      embed.addFields(
-        { name: '📈 Rate', value: `\`1 ${trade.asset} = ${parseFloat(trade.rate).toFixed(2)} ${trade.fiat_currency}\``, inline: true },
-      );
-    }
-    if (trade.fee_amount && trade.fee_percentage_snapshot) {
-      embed.addFields(
-        { name: '🏷️ Fee', value: `\`${parseFloat(trade.fee_amount).toFixed(8)} ${trade.asset} (${trade.fee_percentage_snapshot}%)\``, inline: true },
-      );
-    }
-  } else if (trade.direction === 'SELL') {
+    // Secondary: crypto they receive
     embed.addFields(
-      { name: '📦 You Send',       value: assetLabel(trade.asset),              inline: true },
-      { name: '💳 Receive Via',    value: fiatMethodLabel(trade.fiat_method),   inline: true },
-      { name: '🔢 Crypto Amount',  value: `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``, inline: true },
+      { name: `${E.BUY} You Receive`,      value: `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``, inline: true },
+      { name: `${E.DEBTCARD} Payment Method`, value: fiatMethodLabel(trade.fiat_method),                       inline: true },
     );
+    // Fee in fiat
+    const fee = feeInFiat(trade.fee_amount, trade.rate, trade.fiat_currency, trade.fee_percentage_snapshot);
+    if (fee) {
+      embed.addFields({ name: `${E.ARROW} Fee`, value: `\`${fee}\``, inline: true });
+    }
+  }
+
+  // ── SELL: user sends crypto, receives fiat ────────────────────────────────
+  else if (trade.direction === 'SELL') {
+    // Primary: fiat they receive
     if (trade.fiat_amount) {
-      embed.addFields(
-        { name: '💰 Fiat Total', value: `\`${parseFloat(trade.fiat_amount).toFixed(2)} ${trade.fiat_currency}\``, inline: true },
-      );
+      embed.addFields({
+        name:   `${E.DEBTCARD} You Receive`,
+        value:  `\`${fiatDisplay(trade.fiat_amount, trade.fiat_currency)}\``,
+        inline: true,
+      });
+    } else {
+      embed.addFields({ name: `${E.DEBTCARD} You Receive`, value: `\`? ${trade.fiat_currency}\``, inline: true });
     }
-    if (trade.rate) {
-      embed.addFields(
-        { name: '📈 Rate', value: `\`1 ${trade.asset} = ${parseFloat(trade.rate).toFixed(2)} ${trade.fiat_currency}\``, inline: true },
-      );
-    }
-  } else if (trade.direction === 'SWAP') {
+    // Secondary: crypto they send
     embed.addFields(
-      { name: '📤 You Send',    value: assetLabel(trade.asset),                                              inline: true },
-      { name: '📥 You Receive', value: trade.swap_to_asset ? assetLabel(trade.swap_to_asset) : '—',         inline: true },
-      { name: '🔢 Amount',      value: `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``,          inline: true },
+      { name: `${E.ARROW} You Send`,      value: `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``, inline: true },
+      { name: `${E.DEBTCARD} Receive Via`, value: fiatMethodLabel(trade.fiat_method),                         inline: true },
     );
-  } else if (trade.direction === 'FIAT_TO_FIAT') {
+    const fee = feeInFiat(trade.fee_amount, trade.rate, trade.fiat_currency, trade.fee_percentage_snapshot);
+    if (fee) {
+      embed.addFields({ name: `${E.ARROW} Fee`, value: `\`${fee}\``, inline: true });
+    }
+  }
+
+  // ── SWAP: crypto → crypto ─────────────────────────────────────────────────
+  else if (trade.direction === 'SWAP') {
     embed.addFields(
-      { name: '📤 Send Via',    value: fiatMethodLabel(trade.fiat_method),                                   inline: true },
-      { name: '📥 Receive Via', value: trade.fiat_to_method ? fiatMethodLabel(trade.fiat_to_method) : '—',  inline: true },
-      { name: '💰 Amount',      value: `\`${parseFloat(trade.amount).toFixed(2)} ${trade.fiat_currency}\``, inline: true },
+      { name: `${E.ARROW} You Send`,    value: `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``,      inline: true },
+      { name: `${E.BUY} You Receive`,   value: trade.swap_to_asset ? assetLabel(trade.swap_to_asset) : '—',      inline: true },
+      { name: `${E.ARROW} Network`,     value: assetLabel(trade.asset),                                           inline: true },
     );
   }
 
-  // ── Optional fields ───────────────────────────────────────────────────────
+  // ── FIAT → FIAT ───────────────────────────────────────────────────────────
+  else if (trade.direction === 'FIAT_TO_FIAT') {
+    embed.addFields(
+      { name: `${E.DEBTCARD} Amount`,    value: `\`${fiatDisplay(trade.amount, trade.fiat_currency)}\``,          inline: true },
+      { name: `${E.ARROW} Send Via`,     value: fiatMethodLabel(trade.fiat_method),                               inline: true },
+      { name: `${E.BUY} Receive Via`,    value: trade.fiat_to_method ? fiatMethodLabel(trade.fiat_to_method) : '—', inline: true },
+    );
+  }
+
+  // ── Optional supplemental fields ─────────────────────────────────────────
   if (exchangerUsername) {
-    embed.addFields({ name: '🤝 Exchanger', value: `@${exchangerUsername}`, inline: true });
+    embed.addFields({ name: `${E.CHECK} Exchanger`, value: `@${exchangerUsername}`, inline: true });
   }
 
   if (trade.user_wallet_address) {
-    embed.addFields({ name: '📬 Destination Wallet', value: `\`${trade.user_wallet_address}\``, inline: false });
+    embed.addFields({ name: `${E.ARROW} Destination Wallet`, value: `\`${trade.user_wallet_address}\``, inline: false });
   }
 
   if (trade.tx_id) {
-    embed.addFields({ name: '🔗 Transaction ID', value: `\`${trade.tx_id}\``, inline: false });
+    embed.addFields({ name: `${E.ARROW} Transaction`, value: `\`${trade.tx_id}\``, inline: false });
   }
 
   if (trade.user_note) {
-    embed.addFields({ name: '📝 Buyer Note', value: trade.user_note, inline: false });
+    embed.addFields({ name: `${E.ARROW} Note`, value: trade.user_note, inline: false });
   }
 
   if (trade.expires_at && trade.status === 'OPEN') {
-    embed.addFields({ name: '⏱️ Expires', value: `<t:${Math.floor(new Date(trade.expires_at).getTime() / 1000)}:R>`, inline: true });
+    embed.addFields({
+      name:   `${E.ARROW} Expires`,
+      value:  `<t:${Math.floor(new Date(trade.expires_at).getTime() / 1000)}:R>`,
+      inline: true,
+    });
   }
 
   embed
-    .setFooter({ text: `RapidEx · Secure P2P Exchange · Trade opened` })
+    .setFooter({ text: 'RapidEx · Secure P2P Exchange' })
     .setTimestamp(trade.created_at);
 
   return embed;
 }
 
 // ---------------------------------------------------------------------------
-// Fiat payment instructions embed (shown to user after exchanger claims)
+// Fiat payment instructions embed (fiat-first)
 // ---------------------------------------------------------------------------
 
 export function buildFiatInstructionsEmbed(trade: DbTrade, exchangerUsername: string): EmbedBuilder {
@@ -236,74 +289,82 @@ export function buildFiatInstructionsEmbed(trade: DbTrade, exchangerUsername: st
   const isF2F  = trade.direction === 'FIAT_TO_FIAT';
   const isBuy  = trade.direction === 'BUY';
 
+  // Build the primary amount string (fiat when available, else crypto)
+  const primaryAmount = (trade.fiat_amount && !isSwap && !isF2F)
+    ? `**\`${fiatDisplay(trade.fiat_amount, trade.fiat_currency)}\`**`
+    : `**\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\`**`;
+
   let instructions: string;
 
   if (isSwap) {
     instructions =
-      `Send **\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\`** to the exchanger's deposit address.\n\n` +
-      `The exchanger will share their wallet address here momentarily.\n\n` +
-      `Once you've sent, click **✅ I've Sent Payment** below.`;
+      `Send **\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\`** to the exchanger's wallet address.\n\n` +
+      `The exchanger will share their deposit address in this channel shortly.\n\n` +
+      `Once sent, click **${E.CHECK} I've Sent Payment** below.\n\n` +
+      `${E.NO} **Only click after you have sent the funds.**`;
   } else if (isF2F) {
     instructions =
-      `Transfer via **${fiatMethodLabel(trade.fiat_method)}** to the exchanger.\n\n` +
-      `The exchanger will share their payment details here momentarily.\n\n` +
-      `Once you've sent, click **✅ I've Sent Payment** below.`;
+      `Send ${primaryAmount} via **${fiatMethodLabel(trade.fiat_method)}** to the exchanger.\n\n` +
+      `The exchanger will share their payment details in this channel shortly.\n\n` +
+      `Once sent, click **${E.CHECK} I've Sent Payment** below.`;
   } else if (isBuy) {
     instructions =
-      `Pay **\`${trade.fiat_amount ? parseFloat(trade.fiat_amount).toFixed(2) : '?'} ${trade.fiat_currency}\`** via **${fiatMethodLabel(trade.fiat_method)}** to the exchanger.\n\n` +
-      `The exchanger will share their payment details here momentarily.\n\n` +
-      `Once you've sent the full amount, click **✅ I've Sent Payment** below.\n\n` +
-      `⚠️ **Do not click the button before you have actually sent.**`;
+      `Pay ${primaryAmount} via **${fiatMethodLabel(trade.fiat_method)}** to the exchanger.\n\n` +
+      `The exchanger will share their payment details in this channel shortly.\n\n` +
+      `Once you have sent the **full amount**, click **${E.CHECK} I've Sent Payment** below.\n\n` +
+      `${E.NO} **Do not click the button before you have actually sent.**`;
   } else {
-    // SELL
+    // SELL — user sends crypto, exchanger sends fiat
     instructions =
-      `Provide your **${fiatMethodLabel(trade.fiat_method)}** details to the exchanger so they can send your fiat payment.\n\n` +
-      `Once payment is confirmed by the exchanger, your crypto will be released.\n\n` +
-      `Click **✅ I've Sent Payment** once the exchanger confirms they have sent.`;
+      `Share your **${fiatMethodLabel(trade.fiat_method)}** details with the exchanger so they can send your fiat.\n\n` +
+      `You will receive ${primaryAmount}.\n\n` +
+      `Once the exchanger confirms they have sent, click **${E.CHECK} I've Sent Payment**.`;
   }
 
   const embed = new EmbedBuilder()
     .setColor(COLORS.WARNING)
-    .setTitle('📋 Payment Instructions')
+    .setTitle(`${E.DEBTCARD} Payment Instructions`)
     .setDescription(instructions);
 
   embed.addFields(
-    { name: '🤝 Exchanger', value: `@${exchangerUsername}`, inline: true },
-    { name: '📊 Status',    value: `${STATUS_ICONS.FIAT_PENDING} Awaiting Your Payment`, inline: true },
+    { name: `${E.CHECK} Exchanger`, value: `@${exchangerUsername}`,                              inline: true },
+    { name: `${E.ARROW} Status`,    value: `${STATUS_ICONS.FIAT_PENDING} Awaiting Payment`,       inline: true },
   );
 
-  if (isSwap) {
+  // Summary fields — fiat first
+  if (!isSwap && !isF2F) {
+    if (trade.fiat_amount) {
+      embed.addFields({ name: isBuy ? `${E.DEBTCARD} You Pay` : `${E.DEBTCARD} You Receive`, value: `\`${fiatDisplay(trade.fiat_amount, trade.fiat_currency)}\``, inline: true });
+    }
+    embed.addFields({ name: `${E.ARROW} Asset`, value: assetLabel(trade.asset), inline: true });
+    // Fee in fiat
+    const fee = feeInFiat(trade.fee_amount, trade.rate, trade.fiat_currency, trade.fee_percentage_snapshot);
+    if (fee) {
+      embed.addFields({ name: `${E.ARROW} Fee`, value: `\`${fee}\``, inline: true });
+    }
+  } else if (isSwap) {
     embed.addFields(
-      { name: '📤 You Send',    value: `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``, inline: true },
-      { name: '📥 You Receive', value: trade.swap_to_asset ? assetLabel(trade.swap_to_asset) : '—', inline: true },
-    );
-  } else if (isF2F) {
-    embed.addFields(
-      { name: '📤 Send Via',    value: fiatMethodLabel(trade.fiat_method), inline: true },
-      { name: '📥 Receive Via', value: trade.fiat_to_method ? fiatMethodLabel(trade.fiat_to_method) : '—', inline: true },
-      { name: '💰 Amount',      value: `\`${parseFloat(trade.amount).toFixed(2)} ${trade.fiat_currency}\``, inline: true },
+      { name: `${E.ARROW} You Send`,    value: `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``,             inline: true },
+      { name: `${E.BUY} You Receive`,   value: trade.swap_to_asset ? assetLabel(trade.swap_to_asset) : '—',             inline: true },
     );
   } else {
+    // F2F
     embed.addFields(
-      { name: '💎 Asset',  value: assetLabel(trade.asset), inline: true },
-      { name: '🔢 Amount', value: `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``, inline: true },
+      { name: `${E.DEBTCARD} Amount`,   value: `\`${fiatDisplay(trade.amount, trade.fiat_currency)}\``,                  inline: true },
+      { name: `${E.ARROW} Send Via`,    value: fiatMethodLabel(trade.fiat_method),                                       inline: true },
+      { name: `${E.BUY} Receive Via`,   value: trade.fiat_to_method ? fiatMethodLabel(trade.fiat_to_method) : '—',      inline: true },
     );
-    if (trade.fiat_amount) {
-      embed.addFields(
-        { name: '💰 Fiat Total', value: `\`${parseFloat(trade.fiat_amount).toFixed(2)} ${trade.fiat_currency}\``, inline: true },
-      );
-    }
   }
 
   embed
-    .setFooter({ text: 'Never send payment before verifying exchanger details' })
+    .setFooter({ text: 'Never send payment before verifying the exchanger\'s details' })
     .setTimestamp();
 
   return embed;
 }
 
 // ---------------------------------------------------------------------------
-// Terms & Conditions embed (shown to buyer when exchanger has T&C)
+// Terms & Conditions embed
 // ---------------------------------------------------------------------------
 
 export function buildTermsEmbed(params: {
@@ -316,15 +377,15 @@ export function buildTermsEmbed(params: {
 
   const embed = new EmbedBuilder()
     .setColor(COLORS.WARNING)
-    .setTitle('📜 Exchanger Terms & Conditions')
+    .setTitle(`${E.LOCK} Exchanger Terms & Conditions`)
     .setDescription(
-      `**@${exchangerUsername}** requires you to accept their Terms & Conditions before claiming your trade.\n\n` +
-      `─────────────────────────────\n` +
+      `**@${exchangerUsername}** requires you to accept their Terms & Conditions before this trade can proceed.\n\n` +
+      `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
       terms.slice(0, 1800) +
-      `\n─────────────────────────────\n\n` +
-      `By clicking **✅ Accept**, you agree to the above terms and allow the exchanger to proceed with your trade.`,
+      `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+      `By clicking **${E.CHECK} Accept Terms**, you agree to the above and allow this exchanger to proceed.`,
     )
-    .setFooter({ text: 'Declining will not affect your trade — another exchanger may still claim it' })
+    .setFooter({ text: 'Declining won\'t cancel your trade — another exchanger may still claim it' })
     .setTimestamp();
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -342,50 +403,50 @@ export function buildTermsEmbed(params: {
 }
 
 // ---------------------------------------------------------------------------
-// Release method selection embed (shown to exchanger after buyer marks paid)
+// Release method row (shown to exchanger after buyer marks fiat sent)
 // ---------------------------------------------------------------------------
 
 export function buildReleaseMethodRow(tradeId: string): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`release_internal:${tradeId}`)
-      .setLabel('🏦 Internal Wallet')
+      .setLabel('Internal Wallet')
       .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
       .setCustomId(`release_external:${tradeId}`)
-      .setLabel('📤 External / Manual')
+      .setLabel('External / Manual')
       .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
       .setCustomId(`dispute:${tradeId}`)
-      .setLabel('⚠️ Dispute')
+      .setLabel('Dispute')
       .setStyle(ButtonStyle.Danger),
   );
 }
-
-// ---------------------------------------------------------------------------
-// External payment check embed (bot asks buyer if they received payment)
-// ---------------------------------------------------------------------------
 
 export function buildExternalPaymentCheckEmbed(
   trade: DbTrade,
   exchangerUsername: string,
 ): { embed: EmbedBuilder; row: ActionRowBuilder<ButtonBuilder> } {
+  // Primary amount: fiat when available
+  const amountStr = trade.fiat_amount
+    ? `\`${fiatDisplay(trade.fiat_amount, trade.fiat_currency)}\` (≈ \`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\`)`
+    : `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``;
+
   const embed = new EmbedBuilder()
     .setColor(COLORS.ESCROW)
-    .setTitle('📤 External Payment — Confirm Receipt')
+    .setTitle(`${E.ARROW} External Payment — Confirm Receipt`)
     .setDescription(
       `**@${exchangerUsername}** has marked this trade as paid via **external / manual transfer**.\n\n` +
-      `Please confirm below whether you have received the payment.\n\n` +
-      `> ✅ **Yes, I received it** — trade will be marked complete and escrow released\n` +
-      `> ❌ **No, I haven't received it** — a dispute will be opened for admin review`,
+      `Please confirm whether you have received the payment:\n\n` +
+      `> ${E.CHECK} **Yes, I received it** — trade completes and escrow is released\n` +
+      `> ${E.NO} **No, I haven't received it** — a dispute is opened for admin review`,
     )
     .addFields(
-      { name: '💎 Asset',      value: assetLabel(trade.asset),                                     inline: true },
-      { name: '🔢 Amount',     value: `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``, inline: true },
-      { name: '🤝 Exchanger',  value: `@${exchangerUsername}`,                                     inline: true },
-      { name: '🆔 Trade ID',   value: `\`${trade.id}\``,                                          inline: false },
+      { name: `${E.DEBTCARD} Amount`,    value: amountStr,              inline: false },
+      { name: `${E.CHECK} Exchanger`,    value: `@${exchangerUsername}`, inline: true  },
+      { name: `${E.ARROW} Trade ID`,     value: `\`${trade.id}\``,       inline: true  },
     )
-    .setFooter({ text: 'Only confirm receipt if you have actually received the funds' })
+    .setFooter({ text: 'Only confirm if you have actually received the funds' })
     .setTimestamp();
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -403,22 +464,17 @@ export function buildExternalPaymentCheckEmbed(
 }
 
 // ---------------------------------------------------------------------------
-// Claim button row (on OPEN trade in forum / ticket)
+// Claim button row
 // ---------------------------------------------------------------------------
 
 export function buildClaimRow(tradeId: string): ActionRowBuilder<ButtonBuilder> {
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`claim:${tradeId}`)
-      .setLabel('🤝 Claim Trade')
+      .setLabel('Claim Trade')
       .setStyle(ButtonStyle.Success),
   );
 }
-
-// ---------------------------------------------------------------------------
-// Exchanger action row — kept for backwards compat / admin views
-// (replaced in main flow by buildReleaseMethodRow)
-// ---------------------------------------------------------------------------
 
 export function buildExchangerActionRow(tradeId: string, status: string): ActionRowBuilder<ButtonBuilder> {
   const row = new ActionRowBuilder<ButtonBuilder>();
@@ -426,15 +482,15 @@ export function buildExchangerActionRow(tradeId: string, status: string): Action
     row.addComponents(
       new ButtonBuilder()
         .setCustomId(`release_internal:${tradeId}`)
-        .setLabel('🏦 Release — Internal Wallet')
+        .setLabel('Release — Internal Wallet')
         .setStyle(ButtonStyle.Success),
       new ButtonBuilder()
         .setCustomId(`release_external:${tradeId}`)
-        .setLabel('📤 Release — External / Manual')
+        .setLabel('Release — External / Manual')
         .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
         .setCustomId(`dispute:${tradeId}`)
-        .setLabel('⚠️ Dispute')
+        .setLabel('Dispute')
         .setStyle(ButtonStyle.Danger),
     );
   }
@@ -451,7 +507,7 @@ export function buildUserActionRow(tradeId: string, status: string): ActionRowBu
     row.addComponents(
       new ButtonBuilder()
         .setCustomId(`fiat_sent:${tradeId}`)
-        .setLabel('✅ I\'ve Sent Payment')
+        .setLabel("I've Sent Payment")
         .setStyle(ButtonStyle.Primary),
     );
   }
@@ -459,7 +515,7 @@ export function buildUserActionRow(tradeId: string, status: string): ActionRowBu
     row.addComponents(
       new ButtonBuilder()
         .setCustomId(`dispute:${tradeId}`)
-        .setLabel('⚠️ Raise Dispute')
+        .setLabel('Raise Dispute')
         .setStyle(ButtonStyle.Danger),
     );
   }
@@ -467,30 +523,30 @@ export function buildUserActionRow(tradeId: string, status: string): ActionRowBu
 }
 
 // ---------------------------------------------------------------------------
-// Panel embed + button (deployed by /setup-panel)
+// Panel embed — accepts optional guild icon URL for thumbnail
 // ---------------------------------------------------------------------------
 
-export function buildPanelEmbed(): EmbedBuilder {
-  return new EmbedBuilder()
+export function buildPanelEmbed(guildIconUrl?: string | null): EmbedBuilder {
+  const embed = new EmbedBuilder()
     .setColor(COLORS.PRIMARY)
-    .setTitle('⚡ RapidEx — P2P Crypto Exchange')
+    .setTitle(`${E.ARROW} RapidEx — P2P Crypto Exchange`)
     .setDescription(
       [
         '> Fast, secure, and private crypto exchange powered by verified exchangers.',
         '',
-        '**How it works**',
-        '`1.` Click **Start Exchange** and choose your trade type',
-        '`2.` Fill in the amount — we\'ll lock a live rate for 5 minutes',
-        '`3.` A verified exchanger claims your ticket in a private channel',
-        '`4.` Complete the payment and receive your crypto',
+        '**How It Works**',
+        `\`1.\` Click **Start Exchange** and choose your trade type`,
+        `\`2.\` Enter the **fiat amount** — a live rate locks for 5 minutes`,
+        `\`3.\` A verified exchanger claims your private ticket`,
+        `\`4.\` Complete the payment and receive your crypto`,
         '',
         '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
         '',
         '**Trade Types**',
-        `📥 **Buy**  — Purchase crypto with fiat`,
-        `📤 **Sell** — Sell crypto for fiat`,
-        `🔄 **Swap** — Exchange one crypto for another`,
-        `💱 **Fiat → Fiat** — Convert between payment methods`,
+        `${E.BUY} **Buy**  — Spend fiat, receive crypto`,
+        `${E.ARROW} **Sell** — Send crypto, receive fiat`,
+        `${E.ARROW} **Swap** — Exchange one crypto for another`,
+        `${E.DEBTCARD} **Fiat → Fiat** — Convert between payment methods`,
         '',
         '**Supported Crypto**',
         `${E.BTC} BTC  ${E.LTC} LTC  ${E.ETH} ETH  ${E.SOL} SOL  ${E.USDT} USDT`,
@@ -501,11 +557,17 @@ export function buildPanelEmbed(): EmbedBuilder {
         '',
         '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
         '',
-        '🔒 All trades are escrow-protected · 🤝 Verified exchangers only',
+        `${E.LOCK} Escrow-protected  ·  ${E.CHECK} Verified exchangers only  ·  ${E.ARROW} Instant tickets`,
       ].join('\n'),
     )
     .setFooter({ text: 'RapidEx · Private Tickets · Verified Exchangers · Escrow Protected' })
     .setTimestamp();
+
+  if (guildIconUrl) {
+    embed.setThumbnail(guildIconUrl);
+  }
+
+  return embed;
 }
 
 export function buildPanelRow(): ActionRowBuilder<ButtonBuilder> {

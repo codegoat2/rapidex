@@ -64,11 +64,11 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
   const embed = new EmbedBuilder()
     .setColor(exchanger.is_banned ? COLORS.ERROR : COLORS.PRIMARY)
-    .setTitle(`📊 Exchanger Profile — ${exchanger.discord_username}`)
-    .setDescription(exchanger.is_banned ? `⛔ **BANNED** — ${exchanger.ban_reason ?? 'No reason given'}` : null)
+    .setTitle(`<:Arrow:1547330759571017768> Exchanger Profile — ${exchanger.discord_username}`)
+    .setDescription(exchanger.is_banned ? `<:emojigg_no:1547332976201830441> **BANNED** — ${exchanger.ban_reason ?? 'No reason given'}` : null)
     .addFields(
-      { name: '💰 Balances', value: balanceLines },
-      { name: '📈 Stats',
+      { name: '<:DebtCard:1547332209684381756> Balances', value: balanceLines },
+      { name: '<:Arrow:1547330759571017768> Stats',
         value: [
           `Completed: **${stats.completedTrades}**`,
           `Disputed: **${stats.disputedTrades}**`,
@@ -76,8 +76,8 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
         ].join(' | '),
         inline: false,
       },
-      { name: '📦 Total Volume', value: volumeLines, inline: false },
-      { name: '🔗 Deposit Addresses', value: addressLines },
+      { name: '<:Arrow:1547330759571017768> Total Volume', value: volumeLines, inline: false },
+      { name: '<:Arrow:1547330759571017768> Deposit Addresses', value: addressLines },
     )
     .setFooter({ text: `ID: ${exchanger.id}` })
     .setTimestamp(exchanger.verified_at);

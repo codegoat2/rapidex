@@ -12,7 +12,7 @@ export const data = new SlashCommandBuilder()
 export async function execute(interaction: ChatInputCommandInteraction): Promise<void> {
   const embed = new EmbedBuilder()
     .setColor(COLORS.PRIMARY)
-    .setTitle('RapidEx Help')
+    .setTitle('<:Arrow:1547330759571017768> RapidEx Help')
     .setDescription('Use the trade panel to start an exchange. Available commands:')
     .addFields(
       {

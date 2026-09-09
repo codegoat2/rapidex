@@ -19,6 +19,19 @@ import { assetLabel, fiatMethodLabel } from './tradeEmbed';
 import type { DbTrade } from '../../types';
 
 // ---------------------------------------------------------------------------
+// Custom server emoji
+// ---------------------------------------------------------------------------
+
+const E = {
+  DEBTCARD: '<:DebtCard:1547332209684381756>',
+  LOCK:     '<:lock:1547331951877165128>',
+  ARROW:    '<:Arrow:1547330759571017768>',
+  BUY:      '<:emojigg_Buy:1547330997002043404>',
+  CHECK:    '<:GreenCheckmark:1547332810048667659>',
+  NO:       '<:emojigg_no:1547332976201830441>',
+} as const;
+
+// ---------------------------------------------------------------------------
 // Fiat symbol helper
 // ---------------------------------------------------------------------------
 
@@ -57,10 +70,10 @@ export function buildThreadName(trade: DbTrade): string {
 
 export function buildForumEmbed(trade: DbTrade): EmbedBuilder {
   const DIRECTION_LABELS: Record<string, string> = {
-    BUY:         '📥 Buy Crypto',
-    SELL:        '📤 Sell Crypto',
-    SWAP:        '🔄 Swap Crypto',
-    FIAT_TO_FIAT:'💱 Fiat → Fiat',
+    BUY:          `${E.BUY} Buy Crypto`,
+    SELL:         `${E.ARROW} Sell Crypto`,
+    SWAP:         `${E.ARROW} Swap Crypto`,
+    FIAT_TO_FIAT: `${E.DEBTCARD} Fiat → Fiat`,
   };
 
   const embed = new EmbedBuilder()
@@ -68,14 +81,14 @@ export function buildForumEmbed(trade: DbTrade): EmbedBuilder {
     .setTitle(`${DIRECTION_LABELS[trade.direction] ?? trade.direction} — Available to Claim`)
     .addFields(
       {
-        name:   '⏱️ Expires',
+        name:   `${E.ARROW} Expires`,
         value:  trade.expires_at
           ? `<t:${Math.floor(new Date(trade.expires_at).getTime() / 1000)}:R>`
           : 'No expiry',
         inline: true,
       },
       {
-        name:   '🕐 Opened',
+        name:   `${E.ARROW} Opened`,
         value:  `<t:${Math.floor(new Date(trade.created_at).getTime() / 1000)}:R>`,
         inline: true,
       },
@@ -86,18 +99,18 @@ export function buildForumEmbed(trade: DbTrade): EmbedBuilder {
   if (trade.direction === 'BUY') {
     if (trade.fiat_amount) {
       embed.addFields({
-        name:   '💰 Buyer Pays',
+        name:   `${E.DEBTCARD} Buyer Pays`,
         value:  `\`${sym(trade.fiat_currency)}${parseFloat(trade.fiat_amount).toFixed(2)} ${trade.fiat_currency}\``,
         inline: true,
       });
     }
     embed.addFields(
-      { name: '📦 Buyer Receives', value: assetLabel(trade.asset),               inline: true },
-      { name: '💳 Payment Method', value: fiatMethodLabel(trade.fiat_method),    inline: true },
+      { name: `${E.BUY} Buyer Receives`,    value: assetLabel(trade.asset),            inline: true },
+      { name: `${E.DEBTCARD} Payment Method`, value: fiatMethodLabel(trade.fiat_method), inline: true },
     );
     if (trade.fiat_amount && trade.rate) {
       embed.addFields({
-        name:   '🔢 Crypto Amount',
+        name:   `${E.ARROW} Crypto Amount`,
         value:  `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``,
         inline: true,
       });
@@ -108,40 +121,40 @@ export function buildForumEmbed(trade: DbTrade): EmbedBuilder {
   else if (trade.direction === 'SELL') {
     if (trade.fiat_amount) {
       embed.addFields({
-        name:   '💰 Buyer Sends',
+        name:   `${E.DEBTCARD} Buyer Sends`,
         value:  `\`${sym(trade.fiat_currency)}${parseFloat(trade.fiat_amount).toFixed(2)} ${trade.fiat_currency}\``,
         inline: true,
       });
     }
     embed.addFields(
-      { name: '📦 Buyer Sends (Crypto)', value: `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``, inline: true },
-      { name: '💳 Receive Via',          value: fiatMethodLabel(trade.fiat_method),                         inline: true },
+      { name: `${E.ARROW} Buyer Sends (Crypto)`, value: `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``, inline: true },
+      { name: `${E.DEBTCARD} Receive Via`,        value: fiatMethodLabel(trade.fiat_method),                         inline: true },
     );
   }
 
   // ── SWAP ────────────────────────────────────────────────────────────────
   else if (trade.direction === 'SWAP') {
     embed.addFields(
-      { name: '📤 User Sends',    value: `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``,           inline: true },
-      { name: '📥 User Receives', value: trade.swap_to_asset ? assetLabel(trade.swap_to_asset) : '—',           inline: true },
+      { name: `${E.ARROW} User Sends`,    value: `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``,       inline: true },
+      { name: `${E.BUY} User Receives`,   value: trade.swap_to_asset ? assetLabel(trade.swap_to_asset) : '—',       inline: true },
     );
   }
 
   // ── FIAT → FIAT ─────────────────────────────────────────────────────────
   else if (trade.direction === 'FIAT_TO_FIAT') {
     embed.addFields(
-      { name: '💰 Amount',      value: `\`${sym(trade.fiat_currency)}${parseFloat(trade.amount).toFixed(2)} ${trade.fiat_currency}\``, inline: true },
-      { name: '📤 Send Via',    value: fiatMethodLabel(trade.fiat_method),                                                             inline: true },
-      { name: '📥 Receive Via', value: trade.fiat_to_method ? fiatMethodLabel(trade.fiat_to_method) : '—',                            inline: true },
+      { name: `${E.DEBTCARD} Amount`,   value: `\`${sym(trade.fiat_currency)}${parseFloat(trade.amount).toFixed(2)} ${trade.fiat_currency}\``, inline: true },
+      { name: `${E.ARROW} Send Via`,    value: fiatMethodLabel(trade.fiat_method),                                                              inline: true },
+      { name: `${E.BUY} Receive Via`,   value: trade.fiat_to_method ? fiatMethodLabel(trade.fiat_to_method) : '—',                             inline: true },
     );
   }
 
   if (trade.user_note) {
-    embed.addFields({ name: '📝 Buyer Note', value: trade.user_note, inline: false });
+    embed.addFields({ name: `${E.ARROW} Buyer Note`, value: trade.user_note, inline: false });
   }
 
   embed
-    .addFields({ name: '🆔 Trade ID', value: `\`${trade.id}\``, inline: false })
+    .addFields({ name: `${E.ARROW} Trade ID`, value: `\`${trade.id}\``, inline: false })
     .setFooter({ text: 'RapidEx · Click Claim Trade to accept this order and open a private ticket' })
     .setTimestamp(trade.created_at);
 
@@ -156,7 +169,7 @@ export function buildForumClaimRow(tradeId: string): ActionRowBuilder<ButtonBuil
   return new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`claim:${tradeId}`)
-      .setLabel('🤝 Claim Trade')
+      .setLabel('Claim Trade')
       .setStyle(ButtonStyle.Success),
   );
 }

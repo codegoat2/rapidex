@@ -50,7 +50,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
   const embed = new EmbedBuilder()
     .setColor(COLORS.SUCCESS)
-    .setTitle(result.isNew ? '✅ Exchanger Verified' : '✅ Exchanger Re-activated')
+    .setTitle(result.isNew ? '<:GreenCheckmark:1547332810048667659> Exchanger Verified' : '<:GreenCheckmark:1547332810048667659> Exchanger Re-activated')
     .addFields(
       { name: 'User', value: `<@${target.id}>`, inline: true },
       { name: 'Status', value: result.isNew ? 'New Account' : 'Restored', inline: true },
