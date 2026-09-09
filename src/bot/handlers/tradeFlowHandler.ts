@@ -347,6 +347,18 @@ export async function handleForceReleaseConfirm(
     .setColor(COLORS.WARNING)
     .setTitle('Confirm Force Release')
     .setDescription(`This will send **${trade.amount} ${trade.asset}** to the user's wallet.\nAre you sure?`);
+
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`confirm_force_release:${tradeId}`)
+      .setLabel('Yes, Force Release')
+      .setStyle(ButtonStyle.Danger),
+  );
+
+  await interaction.editReply({ embeds: [embed], components: [row] });
+}
+
+export async function handleForceRelease(
   interaction: ButtonInteraction,
   tradeId: string,
 ): Promise<void> {
