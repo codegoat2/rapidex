@@ -88,11 +88,14 @@ async function checkHotWalletBalances(): Promise<void> {
 async function fetchWalletBalance(address: string, asset: string, chain: string): Promise<number | null> {
   try {
     if (chain === 'bitcoin' || chain === 'litecoin') {
-      const res = await axios.get<{ final_balance?: number }>(
-        `${blockbookUrl(chain === 'litecoin' ? 'ltc' : 'btc')}/addr/${address}/balance`,
+      // Blockbook v2 API: /api/v2/address/<address>
+      const coin = chain === 'litecoin' ? 'ltc' : 'btc';
+      const res = await axios.get<{ balance?: string; unconfirmedBalance?: string }>(
+        `${blockbookUrl(coin)}/address/${address}`,
         { headers: blockbookHeaders(), timeout: 10000 },
       );
-      return (res.data.final_balance ?? 0) / 1e8;
+      // balance field is in satoshis as a string
+      return parseInt(res.data.balance ?? '0', 10) / 1e8;
     }
     if (chain === 'ethereum' && asset === 'ETH') {
       const provider = new ethers.JsonRpcProvider(rpcUrl('eth'));

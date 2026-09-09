@@ -29,7 +29,7 @@ import { ethers } from 'ethers';
 import { PublicKey } from '@solana/web3.js';
 import { checkTicketRateLimit } from '../../security/rateLimiter';
 import { createTrade } from '../../engine/tradeService';
-import { buildTradeEmbed, buildClaimRow } from '../embeds/tradeEmbed';
+import { buildTradeEmbed, buildClaimRow, fiatMethodLabel, assetLabel } from '../embeds/tradeEmbed';
 import { logger } from '../../utils/logger';
 import { config } from '../../config/env';
 import { getTicketCategory } from '../../config/runtimeConfig';
@@ -199,36 +199,56 @@ async function handleTradeModal(
       return;
     }
 
+    const FIAT_SYMBOLS: Record<string, string> = { EUR: '€', USD: '$', GBP: '£' };
+    const sym = FIAT_SYMBOLS[quote.fiatCurrency] ?? quote.fiatCurrency;
+    const fiatFeeAmount = (parseFloat(quote.feeAmount) * parseFloat(quote.rate)).toFixed(2);
+
     const quoteEmbed = new EmbedBuilder()
       .setColor(COLORS.PRIMARY)
-      .setTitle('Confirm your quote')
-      .setDescription('This quote is locked for 5 minutes. Confirm to open your private trade ticket.')
+      .setTitle('⚡ Confirm Your Quote')
+      .setDescription('This quote is locked for **5 minutes**. Confirm to open your private trade ticket.')
       .addFields(
-        { name: tradeDirection === 'BUY' ? 'You receive' : 'You send',
-          value: `\`${parseFloat(quote.amount).toFixed(8)} ${quote.asset}\``, inline: true },
-        { name: 'Fiat total',
-          value: `\`${parseFloat(quote.fiatAmount).toFixed(2)} ${quote.fiatCurrency}\``, inline: true },
-        { name: 'Rate',
-          value: `\`1 ${quote.asset} = ${parseFloat(quote.rate).toFixed(2)} ${quote.fiatCurrency}\``, inline: false },
-        { name: 'Fee',
-          value: `\`${parseFloat(quote.feeAmount).toFixed(8)} ${quote.asset} (${quote.feePercentage}%)\``, inline: true },
-        { name: 'Expires',
-          value: `<t:${Math.floor(quote.expiresAt.getTime() / 1000)}:R>`, inline: true },
+        {
+          name:   tradeDirection === 'BUY' ? '💰 You Pay' : '💰 You Receive',
+          value:  `\`${sym}${parseFloat(quote.fiatAmount).toFixed(2)} ${quote.fiatCurrency}\``,
+          inline: true,
+        },
+        {
+          name:   tradeDirection === 'BUY' ? '📦 You Receive' : '📦 You Send',
+          value:  `\`${parseFloat(quote.amount).toFixed(8)} ${quote.asset}\``,
+          inline: true,
+        },
+        {
+          name:   '🏷️ Fee',
+          value:  `\`${sym}${fiatFeeAmount} (${quote.feePercentage}%)\``,
+          inline: true,
+        },
+        {
+          name:   '💳 Payment Method',
+          value:  fiatMethodLabel(quote.fiatMethod),
+          inline: true,
+        },
+        {
+          name:   '⏱️ Quote Expires',
+          value:  `<t:${Math.floor(quote.expiresAt.getTime() / 1000)}:R>`,
+          inline: true,
+        },
       )
+      .setFooter({ text: 'RapidEx · Rates from CoinGecko · Locked for 5 min' })
       .setTimestamp();
 
-    if (userNote) quoteEmbed.addFields({ name: 'Your note', value: userNote, inline: false });
+    if (userNote) quoteEmbed.addFields({ name: '📝 Note', value: userNote, inline: false });
 
     await interaction.editReply({
       embeds: [quoteEmbed],
       components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()
           .setCustomId(`quote_confirm:${quote.id}`)
-          .setLabel('Confirm — Open Ticket')
+          .setLabel('✅ Confirm — Open Ticket')
           .setStyle(ButtonStyle.Success),
         new ButtonBuilder()
           .setCustomId(`quote_cancel:${quote.id}`)
-          .setLabel('Cancel')
+          .setLabel('✖ Cancel')
           .setStyle(ButtonStyle.Secondary),
       )],
     });
@@ -241,25 +261,29 @@ async function handleTradeModal(
   const swapToAsset      = tradeDirection === 'SWAP' ? (param2 as Asset) : null;
   const fiatToMethod     = tradeDirection === 'FIAT_TO_FIAT' ? (param2 as FiatMethod) : null;
 
+  const FIAT_SYMBOLS: Record<string, string> = { EUR: '€', USD: '$', GBP: '£' };
+  const sym = FIAT_SYMBOLS[rawCurrency] ?? rawCurrency;
+
   const confirmEmbed = new EmbedBuilder()
     .setColor(COLORS.PRIMARY)
-    .setTitle(tradeDirection === 'SWAP' ? 'Confirm Swap' : 'Confirm Fiat to Fiat')
+    .setTitle(tradeDirection === 'SWAP' ? '🔄 Confirm Swap' : '💱 Confirm Fiat to Fiat')
     .setDescription('Confirm to open your private trade ticket with a verified exchanger.')
     .addFields(
       tradeDirection === 'SWAP'
         ? [
-            { name: 'You send',    value: `\`${rawAmount} ${param1}\``, inline: true },
-            { name: 'You receive', value: `\`${param2}\``,              inline: true },
+            { name: '📤 You Send',    value: `\`${rawAmount} ${param1}\` — ${assetLabel(param1)}`,  inline: true },
+            { name: '📥 You Receive', value: assetLabel(param2),                                    inline: true },
           ]
         : [
-            { name: 'You send via',    value: param1, inline: true },
-            { name: 'You receive via', value: param2, inline: true },
-            { name: 'Amount',          value: `\`${rawAmount} ${rawCurrency}\``, inline: true },
+            { name: '💰 Amount',      value: `\`${sym}${rawAmount}\``,                             inline: true },
+            { name: '📤 Send Via',    value: fiatMethodLabel(param1),                               inline: true },
+            { name: '📥 Receive Via', value: fiatMethodLabel(param2),                               inline: true },
           ],
     )
+    .setFooter({ text: 'RapidEx · Private Tickets · Verified Exchangers' })
     .setTimestamp();
 
-  if (userNote) confirmEmbed.addFields({ name: 'Your note', value: userNote, inline: false });
+  if (userNote) confirmEmbed.addFields({ name: '📝 Note', value: userNote, inline: false });
 
   // Encode the trade params into the button customId for retrieval on confirm
   const encoded = encodeURIComponent(JSON.stringify({
@@ -278,11 +302,11 @@ async function handleTradeModal(
     components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(`noq_confirm:${encoded}`)
-        .setLabel('Confirm — Open Ticket')
+        .setLabel('✅ Confirm — Open Ticket')
         .setStyle(ButtonStyle.Success),
       new ButtonBuilder()
         .setCustomId(`quote_cancel:noquote`)
-        .setLabel('Cancel')
+        .setLabel('✖ Cancel')
         .setStyle(ButtonStyle.Secondary),
     )],
   });

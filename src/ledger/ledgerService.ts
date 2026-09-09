@@ -502,7 +502,15 @@ export async function recordWithdrawal(params: {
 }
 
 /**
- * Records a fee deduction from available balance.
+ * Records a fee deduction.
+ *
+ * For a trade-linked fee the funds are in escrow at time of fee collection
+ * (the trade has been RELEASE_PENDING → funds leave escrow via WITHDRAWAL,
+ * then fee is deducted from escrow in the same accounting pass).
+ * For non-trade fees (rare) the deduction comes from available.
+ *
+ * When tradeId is supplied: escrow ↓ (funds were locked there).
+ * When tradeId is absent:   available ↓ (manual/standalone fee).
  */
 export async function recordFee(params: {
   exchangerId:    string;
@@ -523,7 +531,9 @@ export async function recordFee(params: {
     }
 
     const { available, escrow } = await readBalanceLocked(sql as unknown as postgres.Sql, params.exchangerId, params.asset);
-    const newAvailable = sub(available, params.amount);
+
+    // Fee is collected from escrow (the trade amount was locked there when claimed)
+    const newEscrow = sub(escrow, params.amount);
 
     const entry = await insertEntry(sql as unknown as postgres.Sql, {
       exchangerId:    params.exchangerId,
@@ -532,9 +542,9 @@ export async function recordFee(params: {
       asset:          params.asset,
       amount:         params.amount,
       balanceBefore:  available,
-      balanceAfter:   newAvailable,
+      balanceAfter:   available,   // available unchanged
       escrowBefore:   escrow,
-      escrowAfter:    escrow,
+      escrowAfter:    newEscrow,   // escrow ↓
       reference:      `RapidEx fee for trade ${params.tradeId}`,
       idempotencyKey: params.idempotencyKey,
     });

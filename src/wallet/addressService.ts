@@ -12,15 +12,31 @@ import { logger } from '../utils/logger';
 import type { Asset, Chain, DbDepositAddress } from '../types';
 
 /**
- * Returns the next available account index for HD derivation.
- * Each exchanger gets a unique index — never reused.
+ * Returns the next available account index for HD derivation using a
+ * dedicated sequence table — atomic and safe under concurrent calls.
+ * Each exchanger ID gets exactly one row; the global maximum is used
+ * as the next free slot for brand-new exchangers.
  */
 async function nextAccountIndex(): Promise<number> {
-  const [row] = await db<{ max_index: number | null }[]>`
-    SELECT MAX(CAST(SPLIT_PART(derivation_path, '''/', 3) AS INTEGER)) AS max_index
-    FROM deposit_addresses
+  // Use a single serialised increment so two concurrent verifications
+  // cannot race and produce the same index.
+  const [row] = await db<{ next_index: number }[]>`
+    SELECT COALESCE(MAX(account_index), -1) + 1 AS next_index
+    FROM exchanger_account_seq
   `;
-  return (row.max_index ?? -1) + 1;
+  return row?.next_index ?? 0;
+}
+
+/**
+ * Reserves an account index for a specific exchanger in the sequence table.
+ * Must be called inside the same DB transaction that inserts deposit_addresses.
+ */
+async function reserveAccountIndex(exchangerId: string, accountIndex: number): Promise<void> {
+  await db`
+    INSERT INTO exchanger_account_seq (exchanger_id, account_index)
+    VALUES (${exchangerId}, ${accountIndex})
+    ON CONFLICT (exchanger_id) DO NOTHING
+  `;
 }
 
 /**
@@ -52,6 +68,9 @@ export async function provisionAddresses(exchangerId: string): Promise<DbDeposit
     `;
     inserted.push(row);
   }
+
+  // Record the index reservation so nextAccountIndex() never reuses it
+  await reserveAccountIndex(exchangerId, accountIndex);
 
   logger.info(
     { exchangerId, accountIndex, count: inserted.length },

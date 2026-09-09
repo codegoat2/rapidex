@@ -52,16 +52,30 @@ export async function handleMyTrades(interaction: ChatInputCommandInteraction): 
     await interaction.editReply('❌ You are not a verified exchanger.');
     return;
   }
-  const rows = await db<{ id: string; asset: string; amount: string; status: string; created_at: Date }[]>`
-    SELECT id, asset, amount, status, created_at
+  const rows = await db<{ id: string; asset: string; amount: string; fiat_amount: string | null; fiat_currency: string; status: string; direction: string; created_at: Date }[]>`
+    SELECT id, asset, amount, fiat_amount, fiat_currency, status, direction, created_at
     FROM trades WHERE exchanger_id = ${profile.exchanger.id}
     ORDER BY created_at DESC LIMIT 20
   `;
-  const description = rows.map((trade) =>
-    `\`${trade.id.slice(0, 8)}\` **${trade.asset}** ${trade.amount} · **${trade.status}** · <t:${Math.floor(new Date(trade.created_at).getTime() / 1000)}:R>`,
-  ).join('\n') || '_No trades yet_';
+
+  const FIAT_SYM: Record<string, string> = { EUR: '€', USD: '$', GBP: '£' };
+
+  const description = rows.map((t) => {
+    const sym      = FIAT_SYM[t.fiat_currency] ?? t.fiat_currency;
+    const fiatPart = t.fiat_amount ? ` · ${sym}${parseFloat(t.fiat_amount).toFixed(2)}` : '';
+    const time     = `<t:${Math.floor(new Date(t.created_at).getTime() / 1000)}:R>`;
+    return `\`${t.id.slice(0, 8)}\` **${t.direction}** ${t.asset}${fiatPart} · **${t.status}** · ${time}`;
+  }).join('\n') || '_No trades yet_';
+
   await interaction.editReply({
-    embeds: [new EmbedBuilder().setColor(0x5865F2).setTitle('📋 My Trades').setDescription(description)],
+    embeds: [
+      new EmbedBuilder()
+        .setColor(COLORS.PRIMARY)
+        .setTitle('📋 My Trades')
+        .setDescription(description)
+        .setFooter({ text: `${profile.exchanger.discord_username} · Last 20 trades` })
+        .setTimestamp(),
+    ],
   });
 }
 
@@ -77,7 +91,7 @@ export async function handleDepositAddresses(interaction: ChatInputCommandIntera
     `**${address.asset}**\n\`${address.address}\``,
   ).join('\n\n') || '_No deposit addresses provisioned_';
   await interaction.editReply({
-    embeds: [new EmbedBuilder().setColor(0x5865F2).setTitle('📬 Deposit Addresses').setDescription(description)],
+    embeds: [new EmbedBuilder().setColor(COLORS.PRIMARY).setTitle('📬 Deposit Addresses').setDescription(description)],
   });
 }
 

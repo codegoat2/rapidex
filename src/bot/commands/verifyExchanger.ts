@@ -36,7 +36,7 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
 
   const result = await verifyExchanger({
     targetDiscordId: target.id,
-    targetUsername:  target.tag,
+    targetUsername:  target.username,
     adminDiscordId:  interaction.user.id,
   });
 

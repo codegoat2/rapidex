@@ -22,8 +22,7 @@ import {
   TextChannel,
 } from 'discord.js';
 import { requirePermission } from '../../security/rbac';
-import { getExchangerByDiscordId } from '../../admin/exchangerService';
-import { banExchanger } from '../../admin/exchangerService';
+import { getExchangerByDiscordId, banExchanger, reactivateExchanger } from '../../admin/exchangerService';
 import {
   getBalance,
   adminCredit,
@@ -119,6 +118,12 @@ export const banCommand = new SlashCommandBuilder()
   .addStringOption(o => o.setName('reason').setDescription('Reason').setRequired(true))
   .setDefaultMemberPermissions(0);
 
+export const unbanCommand = new SlashCommandBuilder()
+  .setName('unban')
+  .setDescription('Unban / reactivate a banned exchanger (admin)')
+  .addUserOption(o => o.setName('user').setDescription('User to unban').setRequired(true))
+  .setDefaultMemberPermissions(0);
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -166,7 +171,7 @@ export async function handleCredit(interaction: ChatInputCommandInteraction): Pr
   const key = manualAdjustmentKey(exchanger.id, 'MANUAL_CREDIT', interaction.user.id, Date.now());
   await adminCredit({
     exchangerId: exchanger.id, asset, amount,
-    reference: `Admin credit by ${interaction.user.tag}: ${reason}`,
+    reference: `Admin credit by ${interaction.user.username}: ${reason}`,
     idempotencyKey: key,
   });
 
@@ -212,7 +217,7 @@ export async function handleDebit(interaction: ChatInputCommandInteraction): Pro
     const key = manualAdjustmentKey(exchanger.id, 'MANUAL_DEBIT', interaction.user.id, Date.now());
     await adminDebit({
       exchangerId: exchanger.id, asset, amount,
-      reference: `Admin debit by ${interaction.user.tag}: ${reason}`,
+      reference: `Admin debit by ${interaction.user.username}: ${reason}`,
       idempotencyKey: key,
     });
   } catch (err) {
@@ -253,9 +258,13 @@ export async function handleTrades(interaction: ChatInputCommandInteraction): Pr
     await interaction.editReply(`No trades with status **${status}**.`); return;
   }
 
-  const lines = trades.map(t =>
-    `\`${t.id.slice(0, 8)}\` **${t.asset}** ${parseFloat(t.amount).toFixed(6)} | <@${t.user_discord_id}> | <t:${Math.floor(new Date(t.created_at).getTime() / 1000)}:R>`,
-  ).join('\n');
+  const lines = trades.map(t => {
+    const FIAT_SYM: Record<string, string> = { EUR: '€', USD: '$', GBP: '£' };
+    const sym      = FIAT_SYM[t.fiat_currency] ?? t.fiat_currency;
+    const fiatPart = t.fiat_amount ? ` · ${sym}${parseFloat(t.fiat_amount).toFixed(2)}` : '';
+    const time     = `<t:${Math.floor(new Date(t.created_at).getTime() / 1000)}:R>`;
+    return `\`${t.id.slice(0, 8)}\` **${t.asset}** \`${parseFloat(t.amount).toFixed(6)}\`${fiatPart} | <@${t.user_discord_id}> | ${time}`;
+  }).join('\n');
 
   await interaction.editReply({
     embeds: [
@@ -357,7 +366,7 @@ export async function handleAuditLog(interaction: ChatInputCommandInteraction): 
   await interaction.editReply({
     embeds: [
       new EmbedBuilder().setColor(COLORS.INFO)
-        .setTitle(`📜 Audit Log${target ? ` — ${target.tag}` : ' (Recent)'}`)
+        .setTitle(`📜 Audit Log${target ? ` — @${target.username}` : ' (Recent)'}`)
         .setDescription(lines || '_No entries_')
         .setTimestamp(),
     ],
@@ -434,6 +443,47 @@ export async function handleBan(interaction: ChatInputCommandInteraction): Promi
   }
 }
 
+export async function handleUnban(interaction: ChatInputCommandInteraction): Promise<void> {
+  await requirePermission(interaction, 'ADMIN_BAN');
+  await interaction.deferReply({ ephemeral: true });
+
+  const target = interaction.options.getUser('user', true);
+
+  try {
+    const exchanger = await getExchangerByDiscordId(target.id);
+    if (!exchanger) {
+      await interaction.editReply('❌ No exchanger record found for that user.');
+      return;
+    }
+
+    await reactivateExchanger({
+      exchangerId:    exchanger.id,
+      adminDiscordId: interaction.user.id,
+    });
+
+    // Restore exchanger role
+    try {
+      const { getRoleExchanger } = await import('../../config/runtimeConfig');
+      const roleId = await getRoleExchanger();
+      const member = await interaction.guild?.members.fetch(target.id);
+      if (member && roleId) await member.roles.add(roleId);
+    } catch { /* non-fatal */ }
+
+    await interaction.editReply({
+      embeds: [
+        new EmbedBuilder().setColor(COLORS.SUCCESS)
+          .setTitle('✅ Exchanger Unbanned')
+          .addFields(
+            { name: 'User',   value: `<@${target.id}>`,                    inline: true },
+            { name: 'Status', value: 'Reactivated — can claim trades again', inline: true },
+          ).setTimestamp(),
+      ],
+    });
+  } catch (err) {
+    await interaction.editReply(`❌ ${err instanceof Error ? err.message : 'Unban failed'}`);
+  }
+}
+
 // Re-export all command data for the command registration loop
 export const allAdminCommandData = [
   balanceCommand,
@@ -445,4 +495,5 @@ export const allAdminCommandData = [
   auditLogCommand,
   hotWalletCommand,
   banCommand,
+  unbanCommand,
 ];

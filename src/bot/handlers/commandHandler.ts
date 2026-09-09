@@ -20,6 +20,7 @@ import {
   handleAuditLog,
   handleHotWalletBalance,
   handleBan,
+  handleUnban,
 } from '../commands/adminCommands';
 
 export async function handleCommand(interaction: ChatInputCommandInteraction): Promise<void> {
@@ -46,6 +47,7 @@ export async function handleCommand(interaction: ChatInputCommandInteraction): P
       case 'audit-log':          await handleAuditLog(interaction);      break;
       case 'hot-wallet-balance': await handleHotWalletBalance(interaction); break;
       case 'ban':                await handleBan(interaction);           break;
+      case 'unban':              await handleUnban(interaction);         break;
       default:
         logger.warn({ commandName }, 'Unknown command');
         await interaction.reply({ content: '❌ Unknown command.', ephemeral: true });

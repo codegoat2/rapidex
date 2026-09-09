@@ -90,17 +90,25 @@ export async function handleClaim(
   if (!accepted) {
     const terms = await getExchangerTerms(exchanger.id);
     if (terms) {
-      const { embed, row } = buildTermsEmbed({
-        terms,
-        exchangerUsername: interaction.user.username,
-        tradeId,
-        exchangerId: exchanger.id,
-      });
-      await interaction.editReply({
-        content: `<@${trade.user_discord_id}> — the exchanger has Terms & Conditions you must accept before this trade can proceed.`,
-        embeds:     [embed],
-        components: [row],
-      });
+      // Post T&C to the ticket channel so the BUYER can see and accept/decline.
+      // The exchanger gets an ephemeral reply confirming the T&C was sent.
+      const ticketChannel = interaction.guild?.channels.cache.get(trade.ticket_channel_id) as TextChannel | undefined;
+      if (ticketChannel) {
+        const { embed, row } = buildTermsEmbed({
+          terms,
+          exchangerUsername: interaction.user.username,
+          tradeId,
+          exchangerId: exchanger.id,
+        });
+        await ticketChannel.send({
+          content: `<@${trade.user_discord_id}> — **@${interaction.user.username}** wants to claim your trade but has Terms & Conditions you must review first.`,
+          embeds:     [embed],
+          components: [row],
+        });
+      }
+      await interaction.editReply(
+        '📜 Your Terms & Conditions have been posted in the ticket channel. The trade will be claimed once the buyer accepts.',
+      );
       return;
     }
   }
@@ -122,7 +130,7 @@ export async function claimTrade(
       amount:         trade.amount,
       idempotencyKey: escrowLockKey(trade.id, exchanger.id),
       actorDiscordId: interaction.user.id,
-      note:           `Claimed by exchanger ${interaction.user.tag}`,
+      note:           `Claimed by exchanger ${interaction.user.username}`,
     });
 
     const channel = interaction.guild?.channels.cache.get(trade.ticket_channel_id) as TextChannel | undefined;
@@ -130,11 +138,11 @@ export async function claimTrade(
       await channel.permissionOverwrites.create(interaction.user.id, {
         ViewChannel: true, SendMessages: true, ReadMessageHistory: true,
       });
-      const tradeEmbed = buildTradeEmbed(fiatPendingTrade, interaction.user.tag);
+      const tradeEmbed = buildTradeEmbed(fiatPendingTrade, interaction.user.username);
       const userRow    = buildUserActionRow(trade.id, 'FIAT_PENDING');
-      const fiatEmbed  = buildFiatInstructionsEmbed(fiatPendingTrade, interaction.user.tag);
+      const fiatEmbed  = buildFiatInstructionsEmbed(fiatPendingTrade, interaction.user.username);
       await channel.send({
-        content:    `<@${trade.user_discord_id}> Your trade has been claimed by **${interaction.user.tag}**. Follow the payment instructions below.`,
+        content:    `<@${trade.user_discord_id}> Your trade has been claimed by **${interaction.user.username}**. Follow the payment instructions below.`,
         embeds:     [tradeEmbed, fiatEmbed],
         components: [userRow],
       });
@@ -281,7 +289,7 @@ export async function handleDispute(
     tradeId:        trade.id,
     to:             'DISPUTED',
     actorDiscordId: interaction.user.id,
-    note:           `Dispute raised by ${interaction.user.tag}`,
+    note:           `Dispute raised by ${interaction.user.username}`,
   });
 
   const channel = interaction.guild?.channels.cache.get(trade.ticket_channel_id) as TextChannel | undefined;

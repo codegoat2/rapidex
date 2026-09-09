@@ -4,10 +4,12 @@ import { db } from '../db/client';
 import { config } from '../config/env';
 import { getSettingNumber } from '../admin/settingsService';
 import { divideDecimal, maxDecimal, multiplyDecimal } from './money';
+import { logger } from '../utils/logger';
 import type { Asset, FiatCurrency, FiatMethod, TradeDirection } from '../types';
 
 const QUOTE_TTL_SECONDS = 300;
-const RATE_CACHE_TTL_MS = 15_000;
+const RATE_FRESH_MS     = 15_000;        // serve without refetch while fresh
+const RATE_STALE_MS     = 5 * 60_000;   // serve stale value during CoinGecko outages
 
 const COINGECKO_IDS: Record<Asset, string> = {
   BTC:        'bitcoin',
@@ -18,22 +20,28 @@ const COINGECKO_IDS: Record<Asset, string> = {
   USDT_BEP20: 'tether',
 };
 
-const rateCache = new Map<string, { rate: string; expiresAt: number }>();
+interface RateCacheEntry {
+  rate:      string;
+  fetchedAt: number;
+}
+
+const rateCache    = new Map<string, RateCacheEntry>();
+const revalidating = new Set<string>();
 
 export interface TradeQuote {
-  id: string;
-  asset: Asset;
-  amount: string;
-  direction: TradeDirection;
-  fiatCurrency: FiatCurrency;
-  fiatMethod: FiatMethod;
-  fiatAmount: string;
-  rate: string;
-  rateSource: string;
+  id:            string;
+  asset:         Asset;
+  amount:        string;
+  direction:     TradeDirection;
+  fiatCurrency:  FiatCurrency;
+  fiatMethod:    FiatMethod;
+  fiatAmount:    string;
+  rate:          string;
+  rateSource:    string;
   feePercentage: string;
-  feeAmount: string;
-  expiresAt: Date;
-  userNote: string | null;
+  feeAmount:     string;
+  expiresAt:     Date;
+  userNote:      string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -42,15 +50,14 @@ export interface TradeQuote {
 
 export async function createTradeQuote(params: {
   userDiscordId: string;
-  asset: Asset;
-  amount: string;
-  direction: TradeDirection;
-  fiatCurrency: FiatCurrency;
-  fiatMethod: FiatMethod;
-  userNote?: string | null;
+  asset:         Asset;
+  amount:        string;
+  direction:     TradeDirection;
+  fiatCurrency:  FiatCurrency;
+  fiatMethod:    FiatMethod;
+  userNote?:     string | null;
   amountIsFiat?: boolean;
 }): Promise<TradeQuote> {
-  // Only BUY and SELL use live quotes
   if (params.direction !== 'BUY' && params.direction !== 'SELL') {
     throw new Error('createTradeQuote is only for BUY and SELL trades');
   }
@@ -58,8 +65,9 @@ export async function createTradeQuote(params: {
   const minimum = await getSettingNumber('MIN_TRADE_AMOUNT', config.MIN_TRADE_AMOUNT);
   const maximum = await getSettingNumber('MAX_TRADE_AMOUNT', config.MAX_TRADE_AMOUNT);
   const rate = await getRate(params.asset, params.fiatCurrency);
+
   const cryptoAmount = params.amountIsFiat ? divideDecimal(params.amount, rate) : params.amount;
-  const amountUnits = ethers.parseUnits(cryptoAmount, 18);
+  const amountUnits  = ethers.parseUnits(cryptoAmount, 18);
 
   if (amountUnits < ethers.parseUnits(String(minimum), 18)) {
     throw new Error(`Trade amount is below the minimum of ${minimum}`);
@@ -93,15 +101,15 @@ export async function createTradeQuote(params: {
   `;
 
   return {
-    id: row.id,
-    asset: params.asset,
-    amount: cryptoAmount,
-    direction: params.direction,
-    fiatCurrency: params.fiatCurrency,
-    fiatMethod: params.fiatMethod,
+    id:            row.id,
+    asset:         params.asset,
+    amount:        cryptoAmount,
+    direction:     params.direction,
+    fiatCurrency:  params.fiatCurrency,
+    fiatMethod:    params.fiatMethod,
     fiatAmount,
     rate,
-    rateSource: 'COINGECKO',
+    rateSource:    'COINGECKO',
     feePercentage,
     feeAmount,
     expiresAt,
@@ -113,23 +121,26 @@ export async function createTradeQuote(params: {
 // Consume a quote (mark as used)
 // ---------------------------------------------------------------------------
 
-export async function consumeTradeQuote(quoteId: string, userDiscordId: string): Promise<TradeQuote | null> {
+export async function consumeTradeQuote(
+  quoteId:       string,
+  userDiscordId: string,
+): Promise<TradeQuote | null> {
   return db.begin(async (sql) => {
     const [row] = await sql<{
-      id: string;
-      asset: Asset;
-      amount: string;
-      direction: TradeDirection;
-      fiat_currency: FiatCurrency;
-      fiat_method: FiatMethod;
-      fiat_amount: string;
-      rate: string;
-      rate_source: string;
+      id:             string;
+      asset:          Asset;
+      amount:         string;
+      direction:      TradeDirection;
+      fiat_currency:  FiatCurrency;
+      fiat_method:    FiatMethod;
+      fiat_amount:    string;
+      rate:           string;
+      rate_source:    string;
       fee_percentage: string;
-      fee_amount: string;
-      expires_at: Date;
-      consumed_at: Date | null;
-      user_note: string | null;
+      fee_amount:     string;
+      expires_at:     Date;
+      consumed_at:    Date | null;
+      user_note:      string | null;
     }[]>`
       SELECT * FROM trade_quotes
       WHERE id = ${quoteId} AND user_discord_id = ${userDiscordId}
@@ -159,28 +170,68 @@ export async function consumeTradeQuote(quoteId: string, userDiscordId: string):
 }
 
 // ---------------------------------------------------------------------------
-// Rate fetch (with cache)
+// Rate fetch — stale-while-revalidate + CoinGecko outage fallback
+//
+// Fresh  (age < RATE_FRESH_MS): serve immediately, no network call.
+// Stale  (age < RATE_STALE_MS): serve old value, kick off background refresh.
+// Absent or too old:            fetch synchronously; throw if unavailable.
 // ---------------------------------------------------------------------------
 
 async function getRate(asset: Asset, currency: FiatCurrency): Promise<string> {
   const cacheKey = `${asset}:${currency}`;
   const cached   = rateCache.get(cacheKey);
-  if (cached && cached.expiresAt > Date.now()) return cached.rate;
+  const now      = Date.now();
 
-  const response = await axios.get<Record<string, Record<string, number>>>(
-    'https://api.coingecko.com/api/v3/simple/price',
-    {
-      params: { ids: COINGECKO_IDS[asset], vs_currencies: currency.toLowerCase() },
-      timeout: 8000,
-    },
-  );
+  if (cached) {
+    const age = now - cached.fetchedAt;
 
-  const value = response.data[COINGECKO_IDS[asset]]?.[currency.toLowerCase()];
-  if (!Number.isFinite(value) || (value ?? 0) <= 0) {
+    if (age < RATE_FRESH_MS) {
+      // Still fresh — return immediately
+      return cached.rate;
+    }
+
+    if (age < RATE_STALE_MS) {
+      // Stale but usable — serve now, refresh in background
+      if (!revalidating.has(cacheKey)) {
+        revalidating.add(cacheKey);
+        void fetchFromCoinGecko(asset, currency).then((rate) => {
+          if (rate) rateCache.set(cacheKey, { rate, fetchedAt: Date.now() });
+        }).finally(() => revalidating.delete(cacheKey));
+      }
+      return cached.rate;
+    }
+  }
+
+  // No cache or too stale — must fetch synchronously
+  const rate = await fetchFromCoinGecko(asset, currency);
+  if (!rate) {
+    // Last-resort: if we have an expired cached value, use it with a warning
+    if (cached) {
+      logger.warn({ asset, currency }, 'CoinGecko unavailable — serving expired cached rate');
+      return cached.rate;
+    }
     throw new Error('Unable to obtain a market rate right now. Please try again shortly.');
   }
 
-  const rate = (value as number).toFixed(18);
-  rateCache.set(cacheKey, { rate, expiresAt: Date.now() + RATE_CACHE_TTL_MS });
+  rateCache.set(cacheKey, { rate, fetchedAt: Date.now() });
   return rate;
+}
+
+async function fetchFromCoinGecko(asset: Asset, currency: FiatCurrency): Promise<string | null> {
+  try {
+    const response = await axios.get<Record<string, Record<string, number>>>(
+      'https://api.coingecko.com/api/v3/simple/price',
+      {
+        params:  { ids: COINGECKO_IDS[asset], vs_currencies: currency.toLowerCase() },
+        timeout: 8000,
+      },
+    );
+
+    const value = response.data[COINGECKO_IDS[asset]]?.[currency.toLowerCase()];
+    if (!Number.isFinite(value) || (value ?? 0) <= 0) return null;
+    return (value as number).toFixed(18);
+  } catch (err) {
+    logger.warn({ err, asset, currency }, 'CoinGecko fetch failed');
+    return null;
+  }
 }

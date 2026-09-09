@@ -64,7 +64,7 @@ async function main(): Promise<void> {
   const client = createDiscordClient();
 
   client.on(Events.ClientReady, async (c) => {
-    logger.info(`Logged in as ${c.user.tag}`);
+    logger.info(`Logged in as ${c.user.username}`);
 
     // Register slash commands on startup in non-production, or when forced
     if (config.NODE_ENV !== 'production' || process.env['REGISTER_COMMANDS'] === 'true') {
@@ -85,14 +85,7 @@ async function main(): Promise<void> {
       if (interaction.isChatInputCommand()) {
         await handleCommand(interaction);
       } else if (interaction.isButton()) {
-        // noq_confirm is a no-quote confirmation (SWAP / FIAT_TO_FIAT)
-        if (interaction.customId.startsWith('noq_confirm:')) {
-          const encoded = interaction.customId.slice('noq_confirm:'.length);
-          const { handleNoQuoteConfirmation } = await import('./bot/handlers/modalHandler');
-          await handleNoQuoteConfirmation(interaction, encoded);
-        } else {
-          await handleButton(interaction);
-        }
+        await handleButton(interaction);
       } else if (interaction.isStringSelectMenu()) {
         await handleSelectMenu(interaction);
       } else if (interaction.isModalSubmit()) {

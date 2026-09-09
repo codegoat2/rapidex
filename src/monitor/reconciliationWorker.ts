@@ -120,41 +120,35 @@ async function reconcileAddress(
 // ---------------------------------------------------------------------------
 
 async function fetchBlockcypherTxIds(address: string, chain: string): Promise<string[]> {
-  const url = `${blockbookUrl(chain === 'litecoin' ? 'ltc' : 'btc')}/addr/${address}/full?limit=20`;
+  // Blockbook v2: /api/v2/address/<address>?details=txids
+  const coin = chain === 'litecoin' ? 'ltc' : 'btc';
+  const url = `${blockbookUrl(coin)}/address/${address}?details=txids&pageSize=20`;
 
   try {
-    const res = await axios.get<{ txs?: Array<{ hash: string }> }>(url, { headers: blockbookHeaders(), timeout: 10000 });
-    return (res.data.txs ?? []).map((tx) => tx.hash);
+    const res = await axios.get<{ txids?: string[] }>(url, { headers: blockbookHeaders(), timeout: 10000 });
+    return res.data.txids ?? [];
   } catch {
     return [];
   }
 }
 
 async function fetchAlchemyTxIds(address: string, asset: Asset): Promise<string[]> {
-  const provider = new ethers.JsonRpcProvider(rpcUrl('eth'));
+  if (asset !== 'ETH') return []; // No ERC-20 tokens in current tradeable asset set
 
   try {
-    if (asset === 'ETH') {
-      const latest = await provider.send('eth_getBlockNumber', []);
-      const blockNum = Number(latest);
-      const fromBlock = `0x${Math.max(0, blockNum - 1000).toString(16)}`;
-      const logs = await provider.send('eth_getLogs', [{
-        fromBlock,
-        toBlock: `0x${blockNum.toString(16)}`,
-        topics: [],
-      }]);
-      return (logs as any[])
-        .filter((log: any) => !log.address || log.address === '0x0000000000000000000000000000000000000000')
-        .filter((log: any) => {
-          const from = '0x' + (log.topics[1] || '').slice(26);
-          const to = '0x' + (log.topics[2] || '').slice(26);
-          return from.toLowerCase() === address.toLowerCase() || to.toLowerCase() === address.toLowerCase();
-        })
-        .map((log: any) => log.transactionHash)
-        .filter((hash: string) => hash);
-    }
-    // No ERC-20 tokens in current tradeable asset set
-    return [];
+    const provider = new ethers.JsonRpcProvider(rpcUrl('eth'));
+
+    // alchemy_getAssetTransfers — page through ETH transfers TO this address
+    const result = await provider.send('alchemy_getAssetTransfers', [{
+      toAddress:  address,
+      category:   ['external'],   // native ETH only
+      maxCount:   '0x14',         // 20 results
+      withMetadata: false,
+      excludeZeroValue: true,
+    }]);
+
+    const transfers = (result as { transfers?: Array<{ hash: string }> }).transfers ?? [];
+    return transfers.map((t) => t.hash).filter(Boolean);
   } catch {
     return [];
   }
@@ -179,14 +173,15 @@ async function fetchTxAmount(
 ): Promise<string | null> {
   try {
     if (chain === 'bitcoin' || chain === 'litecoin') {
-      const url = `${blockbookUrl(chain === 'litecoin' ? 'ltc' : 'btc')}/tx/${txId}`;
-      const res = await axios.get<{ outputs: Array<{ addresses: string[]; value: number }> }>(
+      const coin = chain === 'litecoin' ? 'ltc' : 'btc';
+      const url = `${blockbookUrl(coin)}/tx/${txId}`;
+      const res = await axios.get<{ vout: Array<{ addresses: string[]; value: string }> }>(
         url,
         { headers: blockbookHeaders(), timeout: 10000 },
       );
-      const out = res.data.outputs?.find((o) => o.addresses?.includes(address));
+      const out = res.data.vout?.find((o) => o.addresses?.includes(address));
       if (!out) return null;
-      return (out.value / 1e8).toFixed(18);
+      return (parseInt(out.value, 10) / 1e8).toFixed(18);
     }
     if (chain === 'ethereum') {
       const provider = new ethers.JsonRpcProvider(rpcUrl('eth'));

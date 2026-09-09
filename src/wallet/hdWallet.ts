@@ -68,7 +68,7 @@ function getMasterSeed(): Buffer {
   if (!bip39.validateMnemonic(mnemonic)) {
     throw new Error('MASTER_WALLET_MNEMONIC is not a valid BIP39 mnemonic');
   }
-  _masterSeed = Buffer.from((bip39 as any).mnemonicToSeedSync(mnemonic));
+  _masterSeed = Buffer.from(bip39.mnemonicToSeedSync(mnemonic));
   logger.info('HD wallet master seed loaded');
   return _masterSeed;
 }
