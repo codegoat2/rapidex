@@ -222,7 +222,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs (created_at D
 CREATE TABLE IF NOT EXISTS webhook_events (
   id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   provider      TEXT        NOT NULL CHECK (provider IN (
-                  'BLOCKCYPHER', 'ALCHEMY', 'HELIUS', 'RECONCILIATION'
+                  'NOWNODES', 'RECONCILIATION'
                 )),
   event_id      TEXT        NOT NULL,          -- provider-supplied unique ID
   raw_payload   JSONB       NOT NULL,

@@ -108,104 +108,10 @@ interface ParsedDeposit {
 
 function parsePayload(provider: WebhookProvider, payload: Record<string, unknown>): ParsedDeposit[] {
   switch (provider) {
-    case 'BLOCKCYPHER': return parseBlockcypher(payload);
-    case 'ALCHEMY':     return parseAlchemy(payload);
-    case 'HELIUS':      return parseHelius(payload);
+    case 'NOWNODES':       return parseReconciliation(payload);
     case 'RECONCILIATION': return parseReconciliation(payload);
-    default:            return [];
+    default:               return [];
   }
-}
-
-function parseBlockcypher(payload: Record<string, unknown>): ParsedDeposit[] {
-  // BlockCypher tx webhook payload
-  const txHash = String(payload['hash'] ?? '');
-  const outputs = (payload['outputs'] as Array<Record<string, unknown>> | undefined) ?? [];
-  const confirmations = Number(payload['confirmations'] ?? 0);
-
-  // Detect coin from payload (BlockCypher includes 'chain' field)
-  const chain = String(payload['chain'] ?? '').toLowerCase();
-  const asset: Asset = chain.includes('ltc') ? 'LTC' : 'BTC';
-
-  return outputs.map((out) => {
-    const addresses = (out['addresses'] as string[] | undefined) ?? [];
-    const value = Number(out['value'] ?? 0); // satoshis
-    const satoshiAmount = (value / 1e8).toFixed(18);
-
-    return addresses.map((address) => ({
-      txId: txHash,
-      address,
-      amount: satoshiAmount,
-      asset,
-      confirmations,
-    }));
-  }).flat().filter((d) => Number(d.amount) > 0);
-}
-
-function parseAlchemy(payload: Record<string, unknown>): ParsedDeposit[] {
-  const event = (payload['event'] as Record<string, unknown> | undefined) ?? {};
-  const activity = (event['activity'] as Array<Record<string, unknown>> | undefined) ?? [];
-
-  const results: ParsedDeposit[] = [];
-
-  for (const act of activity) {
-    if (act['category'] !== 'token' && act['category'] !== 'external') continue;
-
-    const toAddress = String(act['toAddress'] ?? '');
-    const value = String(act['value'] ?? '0');
-    const asset = String(act['asset'] ?? '');
-    const txHash = String(act['hash'] ?? '');
-
-    let mappedAsset: 'ETH';
-    if (asset === 'ETH') {
-      mappedAsset = 'ETH';
-    } else {
-      // USDT ERC-20, USDC ERC-20, etc. are not in our supported asset set — skip
-      continue;
-    }
-
-    if (Number(value) <= 0) continue;
-
-    results.push({
-      txId: txHash,
-      address: toAddress.toLowerCase(),
-      amount: value,
-      asset: mappedAsset,
-      confirmations: 1,
-    });
-  }
-
-  return results;
-}
-
-function parseHelius(payload: Record<string, unknown>): ParsedDeposit[] {
-  // Helius Enhanced Transaction webhook
-  const signature = String(payload['signature'] ?? '');
-  const tokenTransfers = (payload['tokenTransfers'] as Array<Record<string, unknown>> | undefined) ?? [];
-  const nativeTransfers = (payload['nativeTransfers'] as Array<Record<string, unknown>> | undefined) ?? [];
-
-  const deposits: ParsedDeposit[] = [];
-
-  for (const transfer of tokenTransfers) {
-    // Token transfers not in our supported asset set — skip (we don't trade SPL tokens)
-    void transfer;
-  }
-
-  // Native SOL transfers
-  for (const transfer of nativeTransfers) {
-    const toAddress = String(transfer['toUserAccount'] ?? '');
-    const amount = Number(transfer['amount'] ?? 0) / 1e9; // lamports to SOL
-    if (amount > 0 && toAddress) {
-      deposits.push({
-        txId: signature,
-        address: toAddress,
-        amount: amount.toFixed(18),
-        asset: 'SOL',
-        confirmations: 1,
-      });
-    }
-  }
-
-  return deposits.filter((d) => Number(d.amount) > 0);
 }
 
 function parseReconciliation(payload: Record<string, unknown>): ParsedDeposit[] {
