@@ -15,7 +15,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
 } from 'discord.js';
-import { COLORS } from './colors';
+import { COLORS, BANNER_URL } from './colors';
 import type { DbTrade } from '../../types';
 
 // ---------------------------------------------------------------------------
@@ -540,28 +540,18 @@ export function buildPanelEmbed(guildIconUrl?: string | null): EmbedBuilder {
         `\`3.\` A verified exchanger claims your private ticket`,
         `\`4.\` Complete the payment and receive your crypto`,
         '',
-        '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-        '',
         '**Trade Types**',
         `${E.BUY} **Buy**  — Spend fiat, receive crypto`,
         `${E.ARROW} **Sell** — Send crypto, receive fiat`,
         `${E.ARROW} **Swap** — Exchange one crypto for another`,
         `${E.DEBTCARD} **Fiat → Fiat** — Convert between payment methods`,
         '',
-        '**Supported Crypto**',
-        `${E.BTC} BTC  ${E.LTC} LTC  ${E.ETH} ETH  ${E.SOL} SOL  ${E.USDT} USDT`,
-        '',
-        '**Supported Payment Methods**',
-        `${E.REVOLUT} Revolut  ${E.BANK} Bank Transfer  ${E.BINANCE} Binance Gift Card`,
-        `${E.PAYSAFE} Paysafe  ${E.APPLE} Apple Pay  ${E.CASHAPP} CashApp  ${E.PAYPAL} PayPal`,
-        '',
-        '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-        '',
         `${E.LOCK} Escrow-protected  ·  ${E.CHECK} Verified exchangers only  ·  ${E.ARROW} Instant tickets`,
       ].join('\n'),
     )
     .setFooter({ text: 'RapidEx · Private Tickets · Verified Exchangers · Escrow Protected' })
-    .setTimestamp();
+    .setTimestamp()
+    .setImage(BANNER_URL);
 
   if (guildIconUrl) {
     embed.setThumbnail(guildIconUrl);

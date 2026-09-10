@@ -1,3 +1,7 @@
+/** RapidEx banner image — shown at the bottom of most public embeds. */
+export const BANNER_URL =
+  'https://cdn.discordapp.com/attachments/1545857939808587796/1547346475162271755/RapidEx_Banner.png';
+
 /** Brand colors used across all RapidEx embeds. Orange & black theme. */
 export const COLORS = {
   PRIMARY:   0xFF6B00 as const,  // RapidEx orange
