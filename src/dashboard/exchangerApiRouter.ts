@@ -151,10 +151,10 @@ router.get('/terms', async (req: Request, res: Response) => {
     const exchangerId = (req.cookies as any)['ex_id'] as string | undefined;
     if (!exchangerId) return err(res, 'Unauthorized', 401);
 
-    const [row] = await db<{ terms: string }[]>`
-      SELECT terms FROM exchanger_terms WHERE exchanger_id = ${exchangerId} LIMIT 1
+    const [row] = await db<{ terms_and_conditions: string }[]>`
+      SELECT terms_and_conditions AS terms FROM exchangers WHERE id = ${exchangerId} LIMIT 1
     `;
-    ok(res, { terms: row?.terms ?? '' });
+    ok(res, { terms: row?.terms_and_conditions ?? '' });
   } catch (e) { err(res, String(e), 500); }
 });
 
@@ -167,9 +167,8 @@ router.post('/terms', async (req: Request, res: Response) => {
     if (!terms || typeof terms !== 'string') return err(res, 'terms required');
 
     await db`
-      INSERT INTO exchanger_terms (exchanger_id, terms)
-      VALUES (${exchangerId}, ${terms})
-      ON CONFLICT (exchanger_id) DO UPDATE SET terms = EXCLUDED.terms, updated_at = NOW()
+      UPDATE exchangers SET terms_and_conditions = ${terms}, updated_at = NOW()
+      WHERE id = ${exchangerId}
     `;
     ok(res, { ok: true });
   } catch (e) { err(res, String(e), 500); }
