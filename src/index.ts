@@ -41,7 +41,7 @@ if (config.SENTRY_DSN) {
     dsn:         config.SENTRY_DSN,
     environment: config.NODE_ENV,
     tracesSampleRate: 0.1,
-  });
+  } as any);
   logger.info('Sentry initialised');
 }
 

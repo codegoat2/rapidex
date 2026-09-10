@@ -180,7 +180,7 @@ export async function getExchangerProfile(discordId: string): Promise<ExchangerP
   return { exchanger, addresses, balances, stats };
 }
 
-async function getTradeStats(exchangerId: string): Promise<TradeStats> {
+export async function getTradeStats(exchangerId: string): Promise<TradeStats> {
   const rows = await db<{ status: string; count: string; asset: string; vol: string }[]>`
     SELECT
       status,

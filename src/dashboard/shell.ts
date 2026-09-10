@@ -531,7 +531,7 @@ async function loadTradeDetail(id) {
   const d = await api('/trades/'+id);
   const t = d.trade;
   modal(\`
-  <h3>Trade ${esc(t.id.slice(0,8))}…</h3>
+  <h3>Trade \${esc(t.id.slice(0,8))}…</h3>
   <div class="form-grid">
     \${[['ID',t.id],['Status',badge(t.status)],['User',t.user_discord_id],
        ['Exchanger',t.exchanger_id||'—'],['Asset',t.asset],['Amount',num(t.amount)],
@@ -561,8 +561,8 @@ async function loadTradeDetail(id) {
 // ─────────────────────────────────────────────────────────────
   async function loadExchangers() {
   topbar.textContent='Exchangers';
-  actions.innerHTML=`<button class="btn btn-primary" onclick="openVerifyModal()">+ Verify Exchanger</button>
-    <a href="https://discord.gg/v9EuzwQB5w" target="_blank" class="btn btn-ghost" style="margin-left:8px">Discord</a>`;
+  actions.innerHTML=\`<button class="btn btn-primary" onclick="openVerifyModal()">+ Verify Exchanger</button>
+    <a href="https://discord.gg/v9EuzwQB5w" target="_blank" class="btn btn-ghost" style="margin-left:8px">Discord</a>\`;
   loading();
   const exchangers = await api('/exchangers');
   page.innerHTML=\`
@@ -604,7 +604,7 @@ async function loadExchangerDetail(id) {
   const e = d.exchanger;
   const bals = Object.values(d.balances).filter(b=>parseFloat(b.available)>0||parseFloat(b.escrow)>0);
   modal(\`
-  <h3>${esc(e.discord_username)}</h3>
+  <h3>\${esc(e.discord_username)}</h3>
   <div style="font-size:12px;margin-bottom:16px">
     \${[['ID',e.id],['Discord ID',e.discord_id],['Status',badge(e.is_banned?'BANNED':'ACTIVE')],
        ['Verified',ts(e.verified_at)],['Ban reason',e.ban_reason||'—']
@@ -631,7 +631,7 @@ async function loadExchangerDetail(id) {
 }
 
 function openVerifyModal() {
-  modal(`
+  modal(\`
   <h3>Verify Exchanger</h3>
   <div class="form-grid">
     <div class="form-group"><label>Discord ID</label><input id="v-did" placeholder="123456789012345678"></div>
@@ -641,7 +641,7 @@ function openVerifyModal() {
     <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
     <button class="btn btn-primary" onclick="doVerify()">Verify</button>
   </div>
-  `);
+  \`);
 }
 
 async function doVerify() {
@@ -655,14 +655,14 @@ async function doVerify() {
 }
 
 function openBanModal(discordId, username) {
-  modal(`
-  <h3>Ban ${username}</h3>
+  modal(\`
+  <h3>Ban \${username}</h3>
   <div class="form-group"><label>Reason</label><input id="ban-reason" placeholder="Reason for ban"></div>
   <div class="modal-footer">
     <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-    <button class="btn btn-danger" onclick="doBan('${discordId}')">Confirm Ban</button>
+    <button class="btn btn-danger" onclick="doBan('\${discordId}')">Confirm Ban</button>
   </div>
-  `);
+  \`);
 }
 
 async function doBan(discordId) {
@@ -673,16 +673,16 @@ async function doBan(discordId) {
 }
 
 function openCreditModal(id, name) {
-  modal(`
-  <h3>Credit — ${name}</h3>
-  ${ledgerForm(id,'credit')}
-  `);
+  modal(\`
+  <h3>Credit — \${name}</h3>
+  \${ledgerForm(id,'credit')}
+  \`);
 }
 function openDebitModal(id, name) {
-  modal(`
-  <h3>Debit — ${name}</h3>
-  ${ledgerForm(id,'debit')}
-  `);
+  modal(\`
+  <h3>Debit — \${name}</h3>
+  \${ledgerForm(id,'debit')}
+  \`);
 }
 function ledgerForm(id, type) {
   return \`<div class="form-grid">

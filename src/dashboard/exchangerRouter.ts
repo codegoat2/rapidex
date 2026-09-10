@@ -66,7 +66,7 @@ router.get('/login', (_req: Request, res: Response) => {
   res.send(renderExchangerLoginPage());
 });
 
-router.post('/login', (req: Request, res: Response) => {
+router.post('/login', async (req: Request, res: Response) => {
   const key = req.ip ?? 'unknown';
   const now = Date.now();
   const record = loginAttempts.get(key);

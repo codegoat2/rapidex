@@ -44,15 +44,28 @@ import {
   hasUserAcceptedTerms,
   recordTermsAcceptance,
   getExchangerTerms,
-    const fiatPendingTrade = await claimTradeWithEscrow({
-      exchangerId:    exchanger.id,
-      tradeId:        trade.id,
-      asset:          trade.asset,
-      amount:         trade.amount,
-      idempotencyKey: escrowLockKey(trade.id, exchanger.id),
-      actorDiscordId: interaction.user.id,
-      note:           `Claimed by exchanger ${interaction.user.username}`,
-    });
+} from '../../admin/exchangerService';
+import {
+  buildTradeEmbed,
+  buildUserActionRow,
+  buildExchangerActionRow,
+  buildFiatInstructionsEmbed,
+  buildReleaseMethodRow,
+  buildTermsEmbed,
+  buildExternalPaymentCheckEmbed,
+} from '../embeds/tradeEmbed';
+import { COLORS } from '../embeds/colors';
+import { logger } from '../../utils/logger';
+import { getRoleAdmin } from '../../config/runtimeConfig';
+import type { DbTrade } from '../../types';
+
+// ---------------------------------------------------------------------------
+// OPEN -> CLAIMED
+// ---------------------------------------------------------------------------
+
+export async function handleClaim(
+  interaction: ButtonInteraction,
+  tradeId: string,
 ): Promise<void> {
   await requirePermission(interaction, 'TRADE_CLAIM');
   await requireActiveExchanger(interaction, interaction.user.id);
@@ -414,7 +427,7 @@ export async function handleForceRelease(
         tradeId: trade.id,
         asset: trade.asset,
         amount: trade.amount,
-        idempotencyKey: escrowReleaseKey(trade.id, 'FORCE_RELEASE'),
+        idempotencyKey: escrowReleaseKey(trade.id, 'COMPLETE'),
       });
     }
     await transitionTrade({

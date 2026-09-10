@@ -564,12 +564,12 @@ async function handleWalletAddress(
   if (!parsed.success) {
     await interaction.editReply('Invalid wallet address format.');
     return;
-    const tradeDirection = direction as TradeDirection;
+  }
 
   const trade = await (await import('../../engine/tradeService')).getTradeById(tradeId);
   if (!trade) {
     await interaction.editReply('Trade not found.');
-      amount: tradeDirection === 'FIAT_TO_FIAT' ? rawCollateralAmount! : rawAmount,
+    return;
   }
 
   if (!isValidWalletAddress(trade.asset, parsed.data.wallet_address)) {
