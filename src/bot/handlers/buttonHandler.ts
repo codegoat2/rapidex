@@ -464,14 +464,6 @@ async function showTradeModal(
     .setPlaceholder(isF2F ? '500' : '100')
     .setMaxLength(20);
 
-  const collateralAmountInput = new TextInputBuilder()
-    .setCustomId('collateral_amount')
-    .setLabel(`Collateral amount (${param3 ?? 'crypto'})`)
-    .setStyle(TextInputStyle.Short)
-    .setRequired(true)
-    .setPlaceholder('0.01')
-    .setMaxLength(30);
-
   // Currency (not needed for pure SWAP)
   const currencyInput = new TextInputBuilder()
     .setCustomId('fiat_currency')
@@ -493,10 +485,6 @@ async function showTradeModal(
   const components: ActionRowBuilder<TextInputBuilder>[] = [
     new ActionRowBuilder<TextInputBuilder>().addComponents(amountInput),
   ];
-
-  if (isF2F) {
-    components.push(new ActionRowBuilder<TextInputBuilder>().addComponents(collateralAmountInput));
-  }
 
   if (!isSwap) {
     components.push(new ActionRowBuilder<TextInputBuilder>().addComponents(currencyInput));

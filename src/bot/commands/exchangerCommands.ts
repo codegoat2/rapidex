@@ -8,7 +8,8 @@ import {
   ActionRowBuilder,
   ModalSubmitInteraction,
 } from 'discord.js';
-import { createHash, timingSafeEqual } from 'crypto';
+import { createHash, createHmac, timingSafeEqual } from 'crypto';
+import { config } from '../../config/env';
 import { requirePermission } from '../../security/rbac';
 import { getExchangerProfile, setExchangerTerms, getExchangerTerms } from '../../admin/exchangerService';
 import { db } from '../../db/client';
@@ -327,7 +328,7 @@ export async function handleSetPassModal(interaction: ModalSubmitInteraction): P
   }
 
   // Hash with SHA-256 — consistent with how DASHBOARD_SECRET is used
-  const hash = createHash('sha256').update(password).digest('hex');
+  const hash = createHmac('sha256', config.DASHBOARD_SECRET).update(password).digest('hex');
 
   await db`
     UPDATE exchangers

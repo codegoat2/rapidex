@@ -34,7 +34,13 @@ import { logger } from '../../utils/logger';
 import { config } from '../../config/env';
 import { getTicketCategory } from '../../config/runtimeConfig';
 import { getSettingBool } from '../../admin/settingsService';
-import { createTradeQuote, consumeTradeQuote, type TradeQuote } from '../../quote/quoteService';
+import {
+  createTradeQuote,
+  consumeTradeQuote,
+  createFiatCollateralQuote,
+  type TradeQuote,
+  type FiatCollateralQuote,
+} from '../../quote/quoteService';
 import { COLORS } from '../embeds/colors';
 import type { Asset, DbTrade, FiatCurrency, FiatMethod, TradeDirection } from '../../types';
 import { randomUUID } from 'crypto';
@@ -52,6 +58,8 @@ interface PendingNoQuote {
   asset:        Asset;
   amount:       string;
   fiatAmount:   string | null;
+  rate:          string | null;
+  rateSource:    string | null;
   fiatCurrency: FiatCurrency;
   fiatMethod:   FiatMethod;
   swapToAsset:  Asset | null;
@@ -175,9 +183,6 @@ async function handleTradeModal(
 
   // ── Read modal fields ────────────────────────────────────────────────────
   const rawAmount   = interaction.fields.getTextInputValue('amount').trim();
-  const rawCollateralAmount = direction === 'FIAT_TO_FIAT'
-    ? interaction.fields.getTextInputValue('collateral_amount').trim()
-    : null;
   const rawCurrency = direction !== 'SWAP'
     ? interaction.fields.getTextInputValue('fiat_currency').trim().toUpperCase()
     : 'EUR'; // default; not used for SWAP
@@ -187,14 +192,6 @@ async function handleTradeModal(
   const amountResult = AmountSchema.safeParse(rawAmount);
   if (!amountResult.success) {
     await interaction.editReply('Invalid amount. Please enter a positive number.');
-    return;
-  }
-
-  const collateralAmountResult = direction === 'FIAT_TO_FIAT'
-    ? AmountSchema.safeParse(rawCollateralAmount)
-    : null;
-  if (collateralAmountResult && !collateralAmountResult.success) {
-    await interaction.editReply('Invalid collateral amount. Please enter a positive number.');
     return;
   }
 
@@ -241,6 +238,20 @@ async function handleTradeModal(
 
   const tradeDirection = direction as TradeDirection;
   const fiatCurrency   = rawCurrency as FiatCurrency;
+
+  let collateralQuote: FiatCollateralQuote | null = null;
+  if (tradeDirection === 'FIAT_TO_FIAT') {
+    try {
+      collateralQuote = await createFiatCollateralQuote({
+        asset: param3 as Asset,
+        fiatAmount: rawAmount,
+        fiatCurrency,
+      });
+    } catch (err) {
+      await interaction.editReply(`Could not calculate collateral: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+  }
 
   // ── BUY / SELL: get a live quote ─────────────────────────────────────────
   if (tradeDirection === 'BUY' || tradeDirection === 'SELL') {
@@ -341,7 +352,8 @@ async function handleTradeModal(
           ]
         : [
             { name: '<:DebtCard:1547332209684381756> Fiat Amount', value: `\`${sym}${rawAmount}\``,                       inline: true },
-            { name: '<:lock:1547331951877165128> Collateral',    value: `\`${rawCollateralAmount} ${asset}\``,            inline: true },
+            { name: '<:lock:1547331951877165128> Collateral',    value: `\`${parseFloat(collateralQuote!.collateralAmount).toFixed(8)} ${asset}\``, inline: true },
+            { name: '<:Arrow:1547330759571017768> Rate',          value: `\`1 ${asset} = ${parseFloat(collateralQuote!.rate).toFixed(2)} ${rawCurrency}\``, inline: true },
             { name: '<:Arrow:1547330759571017768> Send Via',    value: fiatMethodLabel(param1),                               inline: true },
             { name: '<:emojigg_Buy:1547330997002043404> Receive Via', value: fiatMethodLabel(param2),                        inline: true },
           ],
@@ -355,8 +367,10 @@ async function handleTradeModal(
   const pendingId = storePendingNoQuote({
     direction: tradeDirection,
     asset,
-    amount: rawAmount,
+    amount: tradeDirection === 'FIAT_TO_FIAT' ? collateralQuote!.collateralAmount : rawAmount,
     fiatAmount: tradeDirection === 'FIAT_TO_FIAT' ? rawAmount : null,
+    rate: tradeDirection === 'FIAT_TO_FIAT' ? collateralQuote!.rate : null,
+    rateSource: tradeDirection === 'FIAT_TO_FIAT' ? collateralQuote!.rateSource : null,
     fiatCurrency,
     fiatMethod,
     swapToAsset,
@@ -462,6 +476,8 @@ async function createTicketDirect(
     asset: Asset;
     amount: string;
     fiatAmount: string | null;
+    rate: string | null;
+    rateSource: string | null;
     fiatCurrency: FiatCurrency;
     fiatMethod: FiatMethod;
     swapToAsset: Asset | null;
@@ -479,6 +495,8 @@ async function createTicketDirect(
       asset:           params.asset,
       amount:          params.amount,
       fiatAmount:      params.fiatAmount,
+      rate:            params.rate,
+      rateSource:      params.rateSource,
       fiatCurrency:    params.fiatCurrency,
       fiatMethod:      params.fiatMethod,
       direction:       params.direction,

@@ -44,6 +44,32 @@ export interface TradeQuote {
   userNote:      string | null;
 }
 
+export interface FiatCollateralQuote {
+  asset:         Asset;
+  fiatCurrency:  FiatCurrency;
+  fiatAmount:    string;
+  collateralAmount: string;
+  rate:          string;
+  rateSource:    string;
+}
+
+/** Convert a fiat amount into the selected crypto collateral at the live rate. */
+export async function createFiatCollateralQuote(params: {
+  asset: Asset;
+  fiatAmount: string;
+  fiatCurrency: FiatCurrency;
+}): Promise<FiatCollateralQuote> {
+  const rate = await getRate(params.asset, params.fiatCurrency);
+  return {
+    asset:            params.asset,
+    fiatCurrency:     params.fiatCurrency,
+    fiatAmount:       params.fiatAmount,
+    collateralAmount: divideDecimal(params.fiatAmount, rate),
+    rate,
+    rateSource:       'COINGECKO',
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Create a live-priced quote (BUY / SELL only)
 // ---------------------------------------------------------------------------
