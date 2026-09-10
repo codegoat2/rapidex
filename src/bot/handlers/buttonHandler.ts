@@ -158,6 +158,9 @@ export async function handleButton(interaction: ButtonInteraction): Promise<void
       case 'release_external':
         await (await import('./tradeFlowHandler')).handleReleaseExternal(interaction, id);
         break;
+      case 'submit_wallet':
+        await (await import('./tradeFlowHandler')).handleSubmitWallet(interaction, id);
+        break;
       case 'ext_received':
         await (await import('./tradeFlowHandler')).handleExternalPaymentReceived(interaction, id);
         break;

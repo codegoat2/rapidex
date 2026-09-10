@@ -138,12 +138,12 @@ export async function claimTrade(
       await channel.permissionOverwrites.create(interaction.user.id, {
         ViewChannel: true, SendMessages: true, ReadMessageHistory: true,
       });
-      const tradeEmbed = buildTradeEmbed(fiatPendingTrade, interaction.user.username);
-      const userRow    = buildUserActionRow(trade.id, 'FIAT_PENDING');
-      const fiatEmbed  = buildFiatInstructionsEmbed(fiatPendingTrade, interaction.user.username);
+      // Single embed that combines trade summary + payment instructions
+      const fiatEmbed = buildFiatInstructionsEmbed(fiatPendingTrade, interaction.user.username);
+      const userRow   = buildUserActionRow(trade.id, 'FIAT_PENDING');
       await channel.send({
-        content:    `<@${trade.user_discord_id}> Your trade has been claimed by **${interaction.user.username}**. Follow the payment instructions below.`,
-        embeds:     [tradeEmbed, fiatEmbed],
+        content:    `<@${trade.user_discord_id}> Your trade has been claimed by **${interaction.user.username}**.`,
+        embeds:     [fiatEmbed],
         components: [userRow],
       });
     }
@@ -230,10 +230,9 @@ export async function handleWalletAddressSubmit(
   const trade = await getTradeById(tradeId);
   if (!trade) { await interaction.editReply('❌ Trade not found.'); return; }
 
-  // Only the exchanger on this trade can release
-  const exchanger = await getExchangerByDiscordId(interaction.user.id);
-  if (!exchanger || trade.exchanger_id !== exchanger.id) {
-    await interaction.editReply('❌ You are not the exchanger on this trade.');
+  // Only the BUYER submits their own wallet address
+  if (trade.user_discord_id !== interaction.user.id) {
+    await interaction.editReply('❌ Only the trade buyer can submit a wallet address.');
     return;
   }
 
@@ -246,14 +245,36 @@ export async function handleWalletAddressSubmit(
     tradeId:        trade.id,
     to:             'RELEASE_PENDING',
     actorDiscordId: interaction.user.id,
-    note:           `Wallet address provided: ${walletAddress}`,
+    note:           `Buyer provided wallet address: ${walletAddress}`,
     updates:        { userWalletAddress: walletAddress },
   });
 
-  await interaction.editReply('✅ Wallet address received. Your withdrawal has been queued for processing.');
+  // Confirm to the buyer in the ticket channel
+  const channel = interaction.guild?.channels.cache.get(trade.ticket_channel_id) as TextChannel | undefined;
+  if (channel) {
+    const embed = new EmbedBuilder()
+      .setColor(COLORS.PRIMARY)
+      .setTitle('📬 Wallet Address Received — Sending Crypto')
+      .setDescription(
+        `Your wallet address has been recorded. The bot is now sending your **${trade.asset}**.\n\n` +
+        `You will receive a notification once the transaction is broadcast.`,
+      )
+      .addFields(
+        { name: '📬 Your Address', value: `\`${walletAddress}\``,                                       inline: false },
+        { name: '💎 Asset',        value: trade.asset,                                                   inline: true  },
+        { name: '🔢 Amount',       value: `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``, inline: true  },
+      )
+      .setFooter({ text: 'RapidEx · Do not close this channel until confirmed' })
+      .setTimestamp();
+    await channel.send({ embeds: [embed] });
+  }
 
-  // Trigger TX engine async
-  void sendCryptoAsync(updated, exchanger.id);
+  await interaction.editReply('✅ Address received. Your crypto is being sent now.');
+
+  // Trigger TX engine — use exchanger id from the trade record
+  if (trade.exchanger_id) {
+    void sendCryptoAsync(updated, trade.exchanger_id);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -662,6 +683,51 @@ export async function handleReleaseInternal(
 
   await interaction.editReply('✅ The buyer has been prompted to submit their wallet address.');
   logger.info({ tradeId: trade.id, exchangerId: exchanger.id }, 'Internal release: buyer wallet address requested');
+}
+
+/**
+ * Buyer clicks "Submit Wallet Address" → show them the address modal.
+ * Only the buyer on this trade can click it.
+ */
+export async function handleSubmitWallet(
+  interaction: ButtonInteraction,
+  tradeId: string,
+): Promise<void> {
+  const trade = await getTradeById(tradeId);
+  if (!trade) { await interaction.reply({ content: '❌ Trade not found.', ephemeral: true }); return; }
+
+  if (trade.user_discord_id !== interaction.user.id) {
+    await interaction.reply({ content: '❌ Only the buyer can submit their wallet address.', ephemeral: true });
+    return;
+  }
+  if (trade.status !== 'FIAT_SENT') {
+    await interaction.reply({ content: `❌ Trade is not in the right state for this action (${trade.status}).`, ephemeral: true });
+    return;
+  }
+
+  const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = await import('discord.js');
+  const modal = new ModalBuilder()
+    .setCustomId(`wallet_address:${tradeId}`)
+    .setTitle(`Enter Your ${trade.asset} Wallet Address`);
+
+  const addressInput = new TextInputBuilder()
+    .setCustomId('wallet_address')
+    .setLabel(`Your ${trade.asset} destination address`)
+    .setStyle(TextInputStyle.Short)
+    .setRequired(true)
+    .setMinLength(10)
+    .setMaxLength(200)
+    .setPlaceholder(
+      trade.asset === 'BTC' ? 'bc1q... or 1... or 3...' :
+      trade.asset === 'LTC' ? 'ltc1q... or L...' :
+      trade.asset === 'ETH' ? '0x...' :
+      trade.asset === 'SOL' ? '4... (Base58)' :
+      trade.asset === 'BNB' || trade.asset === 'USDT_BEP20' ? '0x... (BSC)' :
+      'Your wallet address',
+    );
+
+  modal.addComponents(new ActionRowBuilder<import('discord.js').TextInputBuilder>().addComponents(addressInput));
+  await interaction.showModal(modal);
 }
 
 /**
