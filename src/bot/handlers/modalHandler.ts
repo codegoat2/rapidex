@@ -37,6 +37,51 @@ import { getSettingBool } from '../../admin/settingsService';
 import { createTradeQuote, consumeTradeQuote, type TradeQuote } from '../../quote/quoteService';
 import { COLORS } from '../embeds/colors';
 import type { Asset, DbTrade, FiatCurrency, FiatMethod, TradeDirection } from '../../types';
+import { randomUUID } from 'crypto';
+
+// ---------------------------------------------------------------------------
+// In-process pending-params store for no-quote (SWAP / FIAT_TO_FIAT) confirms
+//
+// Discord limits button customId to 100 chars. A URL-encoded JSON payload
+// easily exceeds that. We store params here for 10 minutes and pass only a
+// short UUID in the customId.
+// ---------------------------------------------------------------------------
+
+interface PendingNoQuote {
+  direction:    TradeDirection;
+  asset:        Asset;
+  amount:       string;
+  fiatCurrency: FiatCurrency;
+  fiatMethod:   FiatMethod;
+  swapToAsset:  Asset | null;
+  fiatToMethod: FiatMethod | null;
+  userNote:     string | null;
+  expiresAt:    number;
+}
+
+const pendingNoQuotes = new Map<string, PendingNoQuote>();
+
+// Purge expired entries every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, val] of pendingNoQuotes) {
+    if (val.expiresAt < now) pendingNoQuotes.delete(key);
+  }
+}, 5 * 60_000);
+
+function storePendingNoQuote(params: Omit<PendingNoQuote, 'expiresAt'>): string {
+  const id = randomUUID();
+  pendingNoQuotes.set(id, { ...params, expiresAt: Date.now() + 10 * 60_000 });
+  return id;
+}
+
+export function consumePendingNoQuote(id: string): Omit<PendingNoQuote, 'expiresAt'> | null {
+  const entry = pendingNoQuotes.get(id);
+  if (!entry) return null;
+  if (entry.expiresAt < Date.now()) { pendingNoQuotes.delete(id); return null; }
+  pendingNoQuotes.delete(id); // consume once
+  return entry;
+}
 
 // ---------------------------------------------------------------------------
 // Validation schemas
@@ -285,8 +330,8 @@ async function handleTradeModal(
 
   if (userNote) confirmEmbed.addFields({ name: '<:Arrow:1547330759571017768> Note', value: userNote, inline: false });
 
-  // Encode the trade params into the button customId for retrieval on confirm
-  const encoded = encodeURIComponent(JSON.stringify({
+  // Store params in memory and pass only a UUID in the customId (< 100 chars)
+  const pendingId = storePendingNoQuote({
     direction: tradeDirection,
     asset,
     amount: rawAmount,
@@ -295,18 +340,18 @@ async function handleTradeModal(
     swapToAsset,
     fiatToMethod,
     userNote,
-  }));
+  });
 
   await interaction.editReply({
     embeds: [confirmEmbed],
     components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
-        .setCustomId(`noq_confirm:${encoded}`)
-        .setLabel('Confirm — Open Ticket')
+        .setCustomId(`noq_confirm:${pendingId}`)
+        .setLabel('✅ Confirm — Open Ticket')
         .setStyle(ButtonStyle.Success),
       new ButtonBuilder()
-        .setCustomId(`quote_cancel:noquote`)
-        .setLabel('Cancel')
+        .setCustomId('quote_cancel:noquote')
+        .setLabel('✖ Cancel')
         .setStyle(ButtonStyle.Secondary),
     )],
   });
@@ -332,25 +377,13 @@ export async function handleQuoteConfirmation(interaction: ButtonInteraction, qu
 
 export async function handleNoQuoteConfirmation(
   interaction: ButtonInteraction,
-  encodedParams: string,
+  pendingId: string,
 ): Promise<void> {
   await interaction.deferReply({ ephemeral: true });
 
-  let params: {
-    direction: TradeDirection;
-    asset: Asset;
-    amount: string;
-    fiatCurrency: FiatCurrency;
-    fiatMethod: FiatMethod;
-    swapToAsset: Asset | null;
-    fiatToMethod: FiatMethod | null;
-    userNote: string | null;
-  };
-
-  try {
-    params = JSON.parse(decodeURIComponent(encodedParams));
-  } catch {
-    await interaction.editReply('Invalid trade parameters. Please try again.');
+  const params = consumePendingNoQuote(pendingId);
+  if (!params) {
+    await interaction.editReply('❌ This confirmation has expired or was already used. Please start a new exchange from the panel.');
     return;
   }
 
