@@ -8,6 +8,7 @@ import {
   ActionRowBuilder,
   ModalSubmitInteraction,
 } from 'discord.js';
+import { createHash, timingSafeEqual } from 'crypto';
 import { requirePermission } from '../../security/rbac';
 import { getExchangerProfile, setExchangerTerms, getExchangerTerms } from '../../admin/exchangerService';
 import { db } from '../../db/client';
@@ -43,6 +44,10 @@ export const withdrawCommand = new SlashCommandBuilder()
   ))
   .addStringOption(o => o.setName('amount').setDescription('Amount to withdraw').setRequired(true))
   .addStringOption(o => o.setName('destination').setDescription('Destination wallet address').setRequired(true));
+
+export const setPassCommand = new SlashCommandBuilder()
+  .setName('setpass')
+  .setDescription('Set or update your exchanger dashboard password');
 
 export async function handleMyTrades(interaction: ChatInputCommandInteraction): Promise<void> {
   await requirePermission(interaction, 'TRADE_CLAIM');
@@ -249,6 +254,98 @@ export async function handleMyTerms(interaction: ChatInputCommandInteraction): P
         .setTitle('<:Arrow:1547330759571017768> Your Terms & Conditions')
         .setDescription(terms)
         .setFooter({ text: 'Use /set-terms to update' })
+        .setTimestamp(),
+    ],
+  });
+}
+
+// ---------------------------------------------------------------------------
+// /setpass — exchanger sets their dashboard password (shown via modal)
+// Only verified exchangers (TRADE_CLAIM permission) can use this.
+// Password is stored as a SHA-256 hash (same pattern as DASHBOARD_SECRET).
+// ---------------------------------------------------------------------------
+
+export async function handleSetPass(interaction: ChatInputCommandInteraction): Promise<void> {
+  await requirePermission(interaction, 'TRADE_CLAIM');
+
+  const profile = await getExchangerProfile(interaction.user.id);
+  if (!profile) {
+    await interaction.reply({ content: '❌ You are not a verified exchanger.', ephemeral: true });
+    return;
+  }
+
+  const modal = new ModalBuilder()
+    .setCustomId('setpass_modal')
+    .setTitle('Set Exchanger Dashboard Password');
+
+  const passInput = new TextInputBuilder()
+    .setCustomId('dashboard_password')
+    .setLabel('New Password (min 8 characters)')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(true)
+    .setMinLength(8)
+    .setMaxLength(128)
+    .setPlaceholder('Enter a strong password for your dashboard');
+
+  const confirmInput = new TextInputBuilder()
+    .setCustomId('dashboard_password_confirm')
+    .setLabel('Confirm Password')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(true)
+    .setMinLength(8)
+    .setMaxLength(128)
+    .setPlaceholder('Repeat your password');
+
+  modal.addComponents(
+    new ActionRowBuilder<TextInputBuilder>().addComponents(passInput),
+    new ActionRowBuilder<TextInputBuilder>().addComponents(confirmInput),
+  );
+
+  await interaction.showModal(modal);
+}
+
+export async function handleSetPassModal(interaction: ModalSubmitInteraction): Promise<void> {
+  await interaction.deferReply({ ephemeral: true });
+
+  const profile = await getExchangerProfile(interaction.user.id);
+  if (!profile) {
+    await interaction.editReply('❌ You are not a verified exchanger.');
+    return;
+  }
+
+  const password = interaction.fields.getTextInputValue('dashboard_password');
+  const confirm  = interaction.fields.getTextInputValue('dashboard_password_confirm');
+
+  if (password !== confirm) {
+    await interaction.editReply('❌ Passwords do not match. Please try again.');
+    return;
+  }
+
+  if (password.length < 8) {
+    await interaction.editReply('❌ Password must be at least 8 characters.');
+    return;
+  }
+
+  // Hash with SHA-256 — consistent with how DASHBOARD_SECRET is used
+  const hash = createHash('sha256').update(password).digest('hex');
+
+  await db`
+    UPDATE exchangers
+    SET dashboard_password_hash = ${hash}, updated_at = NOW()
+    WHERE id = ${profile.exchanger.id}
+  `;
+
+  await interaction.editReply({
+    embeds: [
+      new EmbedBuilder()
+        .setColor(COLORS.SUCCESS)
+        .setTitle('<:GreenCheckmark:1547332810048667659> Dashboard Password Set')
+        .setDescription(
+          'Your exchanger dashboard password has been set.\n\n' +
+          'Access your dashboard at `/exchanger` on the website.\n' +
+          'Log in with your **Discord username** and the password you just set.\n\n' +
+          '**Keep your password safe** — it cannot be recovered, only reset with `/setpass`.',
+        )
         .setTimestamp(),
     ],
   });

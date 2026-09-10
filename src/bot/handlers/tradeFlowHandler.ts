@@ -44,28 +44,15 @@ import {
   hasUserAcceptedTerms,
   recordTermsAcceptance,
   getExchangerTerms,
-} from '../../admin/exchangerService';
-import {
-  buildTradeEmbed,
-  buildUserActionRow,
-  buildExchangerActionRow,
-  buildFiatInstructionsEmbed,
-  buildReleaseMethodRow,
-  buildTermsEmbed,
-  buildExternalPaymentCheckEmbed,
-} from '../embeds/tradeEmbed';
-import { COLORS } from '../embeds/colors';
-import { logger } from '../../utils/logger';
-import { getRoleAdmin } from '../../config/runtimeConfig';
-import type { DbTrade } from '../../types';
-
-// ---------------------------------------------------------------------------
-// OPEN → CLAIMED
-// ---------------------------------------------------------------------------
-
-export async function handleClaim(
-  interaction: ButtonInteraction,
-  tradeId: string,
+    const fiatPendingTrade = await claimTradeWithEscrow({
+      exchangerId:    exchanger.id,
+      tradeId:        trade.id,
+      asset:          trade.asset,
+      amount:         trade.amount,
+      idempotencyKey: escrowLockKey(trade.id, exchanger.id),
+      actorDiscordId: interaction.user.id,
+      note:           `Claimed by exchanger ${interaction.user.username}`,
+    });
 ): Promise<void> {
   await requirePermission(interaction, 'TRADE_CLAIM');
   await requireActiveExchanger(interaction, interaction.user.id);
@@ -123,15 +110,30 @@ export async function claimTrade(
   exchanger: import('../../types').DbExchanger,
 ): Promise<void> {
   try {
-    const fiatPendingTrade = await claimTradeWithEscrow({
-      exchangerId:    exchanger.id,
-      tradeId:        trade.id,
-      asset:          trade.asset,
-      amount:         trade.amount,
-      idempotencyKey: escrowLockKey(trade.id, exchanger.id),
-      actorDiscordId: interaction.user.id,
-      note:           `Claimed by exchanger ${interaction.user.username}`,
-    });
+    // Fiat-to-fiat trades settle outside the crypto ledger. The BTC asset
+    // value on these rows is only a schema-compatible placeholder.
+    const fiatPendingTrade = trade.direction === 'FIAT_TO_FIAT'
+      ? await transitionTrade({
+          tradeId:        trade.id,
+          to:             'CLAIMED',
+          actorDiscordId: interaction.user.id,
+          note:           `Claimed by exchanger ${interaction.user.username}`,
+          updates:        { exchangerId: exchanger.id, claimedAt: new Date() },
+        }).then((claimed) => transitionTrade({
+          tradeId:        claimed.id,
+          to:             'FIAT_PENDING',
+          actorDiscordId: interaction.user.id,
+          note:           'Awaiting fiat-to-fiat payment',
+        }))
+      : await claimTradeWithEscrow({
+          exchangerId:    exchanger.id,
+          tradeId:        trade.id,
+          asset:          trade.asset,
+          amount:         trade.amount,
+          idempotencyKey: escrowLockKey(trade.id, exchanger.id),
+          actorDiscordId: interaction.user.id,
+          note:           `Claimed by exchanger ${interaction.user.username}`,
+        });
 
     const channel = interaction.guild?.channels.cache.get(trade.ticket_channel_id) as TextChannel | undefined;
     if (channel) {
@@ -148,7 +150,11 @@ export async function claimTrade(
       });
     }
 
-    await interaction.editReply(`✅ You've claimed trade \`${trade.id}\`. Escrow locked: **${trade.amount} ${trade.asset}**`);
+    await interaction.editReply(
+      trade.direction === 'FIAT_TO_FIAT'
+        ? `✅ You've claimed trade \`${trade.id}\`. This fiat-to-fiat trade will settle manually.`
+        : `✅ You've claimed trade \`${trade.id}\`. Escrow locked: **${trade.amount} ${trade.asset}**`,
+    );
     void notifyAsync('notifyTradeClaimed', trade.id, interaction.user.id);
     void (await import('../services/forumService')).closeForumThread(trade.id, 'CLAIMED');
     logger.info({ tradeId: trade.id, exchangerId: exchanger.id }, 'Trade claimed');
@@ -207,7 +213,7 @@ export async function handleFiatSent(
       .addFields({ name: 'Trade ID', value: `\`${trade.id}\``, inline: true })
       .setTimestamp();
 
-    const releaseRow = buildReleaseMethodRow(trade.id);
+    const releaseRow = buildReleaseMethodRow(trade.id, trade.direction !== 'FIAT_TO_FIAT');
     await channel.send({ embeds: [embed], components: [releaseRow] });
   }
 
@@ -367,7 +373,11 @@ export async function handleForceReleaseConfirm(
   const embed = new EmbedBuilder()
     .setColor(COLORS.WARNING)
     .setTitle('Confirm Force Release')
-    .setDescription(`This will send **${trade.amount} ${trade.asset}** to the user's wallet.\nAre you sure?`);
+    .setDescription(
+      trade.direction === 'FIAT_TO_FIAT'
+        ? 'This will mark the disputed fiat-to-fiat trade as completed.\nAre you sure?'
+        : `This will send **${trade.amount} ${trade.asset}** to the user's wallet.\nAre you sure?`,
+    );
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
@@ -392,8 +402,30 @@ export async function handleForceRelease(
     await interaction.editReply(`❌ Trade must be DISPUTED to force-release (current: ${trade.status}).`);
     return;
   }
-  if (!trade.user_wallet_address) {
+  if (trade.direction !== 'FIAT_TO_FIAT' && !trade.user_wallet_address) {
     await interaction.editReply('❌ No wallet address on record. Cannot release without a destination.');
+    return;
+  }
+
+  if (trade.direction === 'FIAT_TO_FIAT') {
+    if (trade.exchanger_id) {
+      await releaseEscrow({
+        exchangerId: trade.exchanger_id,
+        tradeId: trade.id,
+        asset: trade.asset,
+        amount: trade.amount,
+        idempotencyKey: escrowReleaseKey(trade.id, 'FORCE_RELEASE'),
+      });
+    }
+    await transitionTrade({
+      tradeId: trade.id,
+      to: 'COMPLETED',
+      actorDiscordId: interaction.user.id,
+      note: `Force-released by admin ${interaction.user.tag}`,
+      updates: { completedAt: new Date() },
+    });
+    await interaction.editReply('✅ Fiat-to-fiat trade force-completed by admin.');
+    await db_auditLog(interaction.user.id, trade.user_discord_id, 'FORCE_RELEASE', 'trade', trade.id);
     return;
   }
 
@@ -430,7 +462,11 @@ export async function handleForceCancelConfirm(
   const embed = new EmbedBuilder()
     .setColor(COLORS.WARNING)
     .setTitle('Confirm Force Cancel')
-    .setDescription(`This will return **${trade.amount} ${trade.asset}** to the exchanger's available balance.\nAre you sure?`);
+    .setDescription(
+      trade.direction === 'FIAT_TO_FIAT'
+        ? 'This will cancel the disputed fiat-to-fiat trade.\nAre you sure?'
+        : `This will return **${trade.amount} ${trade.asset}** to the exchanger's available balance.\nAre you sure?`,
+    );
 
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
@@ -487,7 +523,11 @@ export async function handleForceCancel(
     });
   }
 
-  await interaction.editReply('<:GreenCheckmark:1547332810048667659> Trade force-cancelled. Escrow returned to exchanger.');
+  await interaction.editReply(
+    trade.direction === 'FIAT_TO_FIAT'
+      ? '<:GreenCheckmark:1547332810048667659> Fiat-to-fiat trade force-cancelled.'
+      : '<:GreenCheckmark:1547332810048667659> Trade force-cancelled. Escrow returned to exchanger.',
+  );
   await db_auditLog(interaction.user.id, trade.user_discord_id, 'FORCE_CANCEL', 'trade', trade.id);
 }
 
@@ -641,6 +681,10 @@ export async function handleReleaseInternal(
   const exchanger = await getExchangerByDiscordId(interaction.user.id);
   if (!exchanger || trade.exchanger_id !== exchanger.id) {
     await interaction.editReply('❌ You are not the exchanger on this trade.');
+    return;
+  }
+  if (trade.direction === 'FIAT_TO_FIAT') {
+    await interaction.editReply('❌ Fiat-to-fiat trades must use External / Manual release.');
     return;
   }
   if (trade.status !== 'FIAT_SENT') {
@@ -797,7 +841,7 @@ export async function handleExternalPaymentReceived(
     return;
   }
 
-  // Release escrow back to exchanger (external — no on-chain TX from bot)
+  // External settlement returns the locked collateral after the buyer confirms receipt.
   if (trade.exchanger_id) {
     await releaseEscrow({
       exchangerId:    trade.exchanger_id,

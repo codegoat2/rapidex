@@ -242,7 +242,8 @@ export function buildTradeEmbed(trade: DbTrade, exchangerUsername?: string): Emb
   // ── FIAT → FIAT ───────────────────────────────────────────────────────────
   else if (trade.direction === 'FIAT_TO_FIAT') {
     embed.addFields(
-      { name: `${E.DEBTCARD} Amount`,    value: `\`${fiatDisplay(trade.amount, trade.fiat_currency)}\``,          inline: true },
+      { name: `${E.DEBTCARD} Fiat Amount`, value: `\`${fiatDisplay(trade.fiat_amount ?? trade.amount, trade.fiat_currency)}\``, inline: true },
+      { name: `${E.LOCK} Collateral`,      value: `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``,            inline: true },
       { name: `${E.ARROW} Send Via`,     value: fiatMethodLabel(trade.fiat_method),                               inline: true },
       { name: `${E.BUY} Receive Via`,    value: trade.fiat_to_method ? fiatMethodLabel(trade.fiat_to_method) : '—', inline: true },
     );
@@ -290,8 +291,8 @@ export function buildFiatInstructionsEmbed(trade: DbTrade, exchangerUsername: st
   const isBuy  = trade.direction === 'BUY';
 
   // Build the primary amount string (fiat when available, else crypto)
-  const primaryAmount = (trade.fiat_amount && !isSwap && !isF2F)
-    ? `**\`${fiatDisplay(trade.fiat_amount, trade.fiat_currency)}\`**`
+  const primaryAmount = (!isSwap && (trade.fiat_amount || isF2F))
+    ? `**\`${fiatDisplay(trade.fiat_amount ?? trade.amount, trade.fiat_currency)}\`**`
     : `**\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\`**`;
 
   let instructions: string;
@@ -350,7 +351,8 @@ export function buildFiatInstructionsEmbed(trade: DbTrade, exchangerUsername: st
   } else {
     // F2F
     embed.addFields(
-      { name: `${E.DEBTCARD} Amount`,   value: `\`${fiatDisplay(trade.amount, trade.fiat_currency)}\``,                  inline: true },
+      { name: `${E.DEBTCARD} Fiat Amount`, value: `\`${fiatDisplay(trade.fiat_amount ?? trade.amount, trade.fiat_currency)}\``, inline: true },
+      { name: `${E.LOCK} Collateral`,      value: `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``,            inline: true },
       { name: `${E.ARROW} Send Via`,    value: fiatMethodLabel(trade.fiat_method),                                       inline: true },
       { name: `${E.BUY} Receive Via`,   value: trade.fiat_to_method ? fiatMethodLabel(trade.fiat_to_method) : '—',      inline: true },
     );
@@ -406,12 +408,22 @@ export function buildTermsEmbed(params: {
 // Release method row (shown to exchanger after buyer marks fiat sent)
 // ---------------------------------------------------------------------------
 
-export function buildReleaseMethodRow(tradeId: string): ActionRowBuilder<ButtonBuilder> {
-  return new ActionRowBuilder<ButtonBuilder>().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`release_internal:${tradeId}`)
-      .setLabel('Internal Wallet')
-      .setStyle(ButtonStyle.Success),
+export function buildReleaseMethodRow(
+  tradeId: string,
+  includeInternalWallet = true,
+): ActionRowBuilder<ButtonBuilder> {
+  const buttons = [] as ButtonBuilder[];
+
+  if (includeInternalWallet) {
+    buttons.push(
+      new ButtonBuilder()
+        .setCustomId(`release_internal:${tradeId}`)
+        .setLabel('Internal Wallet')
+        .setStyle(ButtonStyle.Success),
+    );
+  }
+
+  buttons.push(
     new ButtonBuilder()
       .setCustomId(`release_external:${tradeId}`)
       .setLabel('External / Manual')
@@ -421,6 +433,8 @@ export function buildReleaseMethodRow(tradeId: string): ActionRowBuilder<ButtonB
       .setLabel('Dispute')
       .setStyle(ButtonStyle.Danger),
   );
+
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(...buttons);
 }
 
 export function buildExternalPaymentCheckEmbed(
@@ -428,7 +442,9 @@ export function buildExternalPaymentCheckEmbed(
   exchangerUsername: string,
 ): { embed: EmbedBuilder; row: ActionRowBuilder<ButtonBuilder> } {
   // Primary amount: fiat when available
-  const amountStr = trade.fiat_amount
+  const amountStr = trade.direction === 'FIAT_TO_FIAT'
+    ? `\`${fiatDisplay(trade.fiat_amount ?? trade.amount, trade.fiat_currency)}\` (collateral: \`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\`)`
+    : trade.fiat_amount
     ? `\`${fiatDisplay(trade.fiat_amount, trade.fiat_currency)}\` (≈ \`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\`)`
     : `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``;
 

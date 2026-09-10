@@ -49,7 +49,7 @@ export function buildThreadName(trade: DbTrade): string {
   }
 
   if (trade.direction === 'FIAT_TO_FIAT') {
-    const fiatAmt = `${sym(trade.fiat_currency)}${parseFloat(trade.amount).toFixed(2)}`;
+    const fiatAmt = `${sym(trade.fiat_currency)}${parseFloat(trade.fiat_amount ?? trade.amount).toFixed(2)}`;
     const from = trade.fiat_method.replace(/_/g, ' ');
     const to   = (trade.fiat_to_method ?? '?').replace(/_/g, ' ');
     return `F2F  ${fiatAmt}  ${from} → ${to}`.slice(0, 100);

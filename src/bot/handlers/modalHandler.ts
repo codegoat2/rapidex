@@ -6,7 +6,7 @@
  *     direction = BUY | SELL | SWAP | FIAT_TO_FIAT
  *     BUY/SELL:       param1=crypto,      param2=fiatMethod
  *     SWAP:           param1=fromCrypto,  param2=toCrypto
- *     FIAT_TO_FIAT:   param1=fromMethod,  param2=toMethod
+ *     FIAT_TO_FIAT:   param1=fromMethod,  param2=toMethod, param3=collateralAsset
  *
  *   wallet_address:<tradeId>
  *     exchanger submits user's destination wallet before release
@@ -51,6 +51,7 @@ interface PendingNoQuote {
   direction:    TradeDirection;
   asset:        Asset;
   amount:       string;
+  fiatAmount:   string | null;
   fiatCurrency: FiatCurrency;
   fiatMethod:   FiatMethod;
   swapToAsset:  Asset | null;
@@ -119,12 +120,16 @@ export async function handleModal(interaction: ModalSubmitInteraction): Promise<
       const direction = parts[1] as string;
       const param1    = parts[2] as string;
       const param2    = parts[3] as string;
-      await handleTradeModal(interaction, direction, param1, param2);
+      const param3    = parts[4] as string | undefined;
+      await handleTradeModal(interaction, direction, param1, param2, param3);
     } else if (prefix === 'wallet_address') {
       await handleWalletAddress(interaction, parts[1]!);
     } else if (prefix === 'set_terms_modal') {
       const { handleSetTermsModal } = await import('../commands/exchangerCommands');
       await handleSetTermsModal(interaction);
+    } else if (prefix === 'setpass_modal') {
+      const { handleSetPassModal } = await import('../commands/exchangerCommands');
+      await handleSetPassModal(interaction);
     } else {
       logger.warn({ customId: interaction.customId }, 'Unknown modal prefix');
     }
@@ -148,6 +153,7 @@ async function handleTradeModal(
   direction: string,
   param1: string,
   param2: string,
+  param3?: string,
 ): Promise<void> {
   await interaction.deferReply({ ephemeral: true });
 
@@ -169,6 +175,9 @@ async function handleTradeModal(
 
   // ── Read modal fields ────────────────────────────────────────────────────
   const rawAmount   = interaction.fields.getTextInputValue('amount').trim();
+  const rawCollateralAmount = direction === 'FIAT_TO_FIAT'
+    ? interaction.fields.getTextInputValue('collateral_amount').trim()
+    : null;
   const rawCurrency = direction !== 'SWAP'
     ? interaction.fields.getTextInputValue('fiat_currency').trim().toUpperCase()
     : 'EUR'; // default; not used for SWAP
@@ -178,6 +187,14 @@ async function handleTradeModal(
   const amountResult = AmountSchema.safeParse(rawAmount);
   if (!amountResult.success) {
     await interaction.editReply('Invalid amount. Please enter a positive number.');
+    return;
+  }
+
+  const collateralAmountResult = direction === 'FIAT_TO_FIAT'
+    ? AmountSchema.safeParse(rawCollateralAmount)
+    : null;
+  if (collateralAmountResult && !collateralAmountResult.success) {
+    await interaction.editReply('Invalid collateral amount. Please enter a positive number.');
     return;
   }
 
@@ -214,6 +231,9 @@ async function handleTradeModal(
       }
       if (param1 === param2) {
         await interaction.editReply('Sending and receiving method cannot be the same.'); return;
+      }
+      if (!(VALID_ASSETS as readonly string[]).includes(param3 ?? '')) {
+        await interaction.editReply('Invalid collateral crypto asset.'); return;
       }
       break;
     }
@@ -301,7 +321,7 @@ async function handleTradeModal(
   }
 
   // ── SWAP / FIAT_TO_FIAT: no live quote needed — go straight to ticket ────
-  const asset      = (tradeDirection === 'SWAP' ? param1 : 'BTC') as Asset; // BTC placeholder for F2F
+  const asset      = (tradeDirection === 'SWAP' ? param1 : param3) as Asset;
   const fiatMethod = (tradeDirection === 'FIAT_TO_FIAT' ? param1 : 'OTHER') as FiatMethod;
   const swapToAsset      = tradeDirection === 'SWAP' ? (param2 as Asset) : null;
   const fiatToMethod     = tradeDirection === 'FIAT_TO_FIAT' ? (param2 as FiatMethod) : null;
@@ -320,7 +340,8 @@ async function handleTradeModal(
             { name: '<:emojigg_Buy:1547330997002043404> You Receive', value: assetLabel(param2),                              inline: true },
           ]
         : [
-            { name: '<:DebtCard:1547332209684381756> Amount',   value: `\`${sym}${rawAmount}\``,                             inline: true },
+            { name: '<:DebtCard:1547332209684381756> Fiat Amount', value: `\`${sym}${rawAmount}\``,                       inline: true },
+            { name: '<:lock:1547331951877165128> Collateral',    value: `\`${rawCollateralAmount} ${asset}\``,            inline: true },
             { name: '<:Arrow:1547330759571017768> Send Via',    value: fiatMethodLabel(param1),                               inline: true },
             { name: '<:emojigg_Buy:1547330997002043404> Receive Via', value: fiatMethodLabel(param2),                        inline: true },
           ],
@@ -335,6 +356,7 @@ async function handleTradeModal(
     direction: tradeDirection,
     asset,
     amount: rawAmount,
+    fiatAmount: tradeDirection === 'FIAT_TO_FIAT' ? rawAmount : null,
     fiatCurrency,
     fiatMethod,
     swapToAsset,
@@ -439,6 +461,7 @@ async function createTicketDirect(
     direction: TradeDirection;
     asset: Asset;
     amount: string;
+    fiatAmount: string | null;
     fiatCurrency: FiatCurrency;
     fiatMethod: FiatMethod;
     swapToAsset: Asset | null;
@@ -455,6 +478,7 @@ async function createTicketDirect(
       userDiscordId:   interaction.user.id,
       asset:           params.asset,
       amount:          params.amount,
+      fiatAmount:      params.fiatAmount,
       fiatCurrency:    params.fiatCurrency,
       fiatMethod:      params.fiatMethod,
       direction:       params.direction,
@@ -540,12 +564,12 @@ async function handleWalletAddress(
   if (!parsed.success) {
     await interaction.editReply('Invalid wallet address format.');
     return;
-  }
+    const tradeDirection = direction as TradeDirection;
 
   const trade = await (await import('../../engine/tradeService')).getTradeById(tradeId);
   if (!trade) {
     await interaction.editReply('Trade not found.');
-    return;
+      amount: tradeDirection === 'FIAT_TO_FIAT' ? rawCollateralAmount! : rawAmount,
   }
 
   if (!isValidWalletAddress(trade.asset, parsed.data.wallet_address)) {

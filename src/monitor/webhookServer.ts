@@ -16,6 +16,7 @@ import { logger } from '../utils/logger';
 import { checkWebhookRateLimit } from '../security/rateLimiter';
 import { processDeposit } from './depositProcessor';
 import dashboardRouter from '../dashboard/dashboardRouter';
+import exchangerRouter from '../dashboard/exchangerRouter';
 import { getHealthStatus } from './healthCheck';
 import {
   renderHomePage,
@@ -52,10 +53,7 @@ export function createWebhookApp(): express.Application {
     next();
   });
 
-  registerWebhook(app, '/webhooks/nownodes', 'BLOCKCYPHER', verifyNowNodesSignature);
-  registerWebhook(app, '/webhooks/blockcypher', 'BLOCKCYPHER', verifyBlockcypherSignature);
-  registerWebhook(app, '/webhooks/alchemy', 'ALCHEMY', verifyAlchemySignature);
-  registerWebhook(app, '/webhooks/helius', 'HELIUS', verifyHeliusSignature);
+  registerWebhook(app, '/webhooks/nownodes', 'NOWNODES', verifyNowNodesSignature);
 
   // ── Health check ──────────────────────────────────────────────────────
   app.get('/health', async (_req: Request, res: Response) => {
@@ -69,6 +67,9 @@ export function createWebhookApp(): express.Application {
 
   // ── Admin Dashboard ───────────────────────────────────────────────────
   app.use('/dashboard', dashboardRouter);
+
+  // ── Exchanger Dashboard ───────────────────────────────────────────────
+  app.use('/exchanger', exchangerRouter);
 
   // ── Public Pages (root level) ──────────────────────────────────────────
   app.get('/', (_req: Request, res: Response) => {
@@ -148,7 +149,7 @@ function verifyNowNodesSignature(body: Buffer, headers: Record<string, unknown>)
 function registerWebhook(
   app: express.Application,
   path: string,
-  provider: 'BLOCKCYPHER' | 'ALCHEMY' | 'HELIUS',
+  provider: 'NOWNODES',
   verify: (body: Buffer, headers: Record<string, unknown>) => boolean,
 ): void {
   app.post(path, (req: Request, res: Response) => {
@@ -179,25 +180,6 @@ function registerWebhook(
       res.status(400).json({ error: 'Invalid webhook payload' });
     }
   });
-}
-
-function verifyBlockcypherSignature(_body: Buffer, headers: Record<string, unknown>): boolean {
-  return safeEqual(
-    String(headers['x-eventtoken'] ?? ''),
-    String((config as typeof config & { BLOCKCYPHER_WEBHOOK_SECRET?: string }).BLOCKCYPHER_WEBHOOK_SECRET ?? config.WEBHOOK_SECRET),
-  );
-}
-
-function verifyAlchemySignature(body: Buffer, headers: Record<string, unknown>): boolean {
-  const signature = String(headers['x-alchemy-signature'] ?? '');
-  const secret = (config as typeof config & { ALCHEMY_WEBHOOK_AUTH_TOKEN?: string }).ALCHEMY_WEBHOOK_AUTH_TOKEN ?? config.WEBHOOK_SECRET;
-  return safeEqual(signature, createHmac('sha256', secret).update(body).digest('hex'));
-}
-
-function verifyHeliusSignature(_body: Buffer, headers: Record<string, unknown>): boolean {
-  const secret = (config as typeof config & { HELIUS_WEBHOOK_SECRET?: string }).HELIUS_WEBHOOK_SECRET ?? config.WEBHOOK_SECRET;
-  const authorization = String(headers['authorization'] ?? '');
-  return safeEqual(authorization.replace(/^Bearer\s+/i, ''), secret);
 }
 
 function safeEqual(actual: string, expected: string): boolean {

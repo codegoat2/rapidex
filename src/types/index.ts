@@ -70,7 +70,7 @@ export type AuditAction =
   | 'WEBHOOK_REGISTERED'
   | 'SYSTEM_ACTION';
 
-export type WebhookProvider = 'BLOCKCYPHER' | 'ALCHEMY' | 'HELIUS' | 'RECONCILIATION';
+export type WebhookProvider = 'NOWNODES' | 'RECONCILIATION';
 
 // ---------------------------------------------------------------------------
 // Database row types (snake_case to match Postgres columns)

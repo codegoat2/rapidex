@@ -156,10 +156,10 @@ function renderLoginPage(error?: string): string {
 <body>
   <div class="card">
     <div class="logo">
-      <h1>⚡ RapidEx</h1>
+      <h1>RapidEx</h1>
       <p>Admin Dashboard</p>
     </div>
-    ${error ? `<div class="error">⚠ ${error}</div>` : ''}
+      ${error ? `<div class="error">! ${error}</div>` : ''}
     <form method="POST" action="/dashboard/login">
       <label>Password</label>
       <input type="password" name="password" placeholder="Enter dashboard password" autofocus required>

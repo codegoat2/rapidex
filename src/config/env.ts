@@ -52,9 +52,6 @@ const envSchema = z.object({
   WEBHOOK_PORT:     z.coerce.number().int().positive().default(3000),
   WEBHOOK_BASE_URL: z.string().default('http://localhost:3000'),
   WEBHOOK_SECRET:   z.string().min(8).default('change-me-in-dashboard'),
-  BLOCKCYPHER_WEBHOOK_SECRET: z.string().optional(),
-  ALCHEMY_WEBHOOK_AUTH_TOKEN:  z.string().optional(),
-  HELIUS_WEBHOOK_SECRET:       z.string().optional(),
 
   // ---- Hot wallet addresses (optional — set in dashboard) -----------
   HOT_WALLET_BTC: z.string().default(''),

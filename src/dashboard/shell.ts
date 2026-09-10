@@ -200,31 +200,33 @@ hr{border:none;border-top:1px solid var(--border);margin:20px 0}
 <!-- Sidebar -->
 <div id="sidebar">
   <div class="sidebar-logo">
-    <h2>⚡ RapidEx</h2>
+    <h2>RapidEx</h2>
     <span>Operations console · v1.0</span>
   </div>
   <nav id="nav">
     <div class="nav-section">Main</div>
-    <button class="nav-item active" data-page="overview"><span class="icon">📊</span>Overview</button>
-    <button class="nav-item" data-page="trades"><span class="icon">💱</span>Trades</button>
-    <button class="nav-item" data-page="exchangers"><span class="icon">👤</span>Exchangers</button>
+    <button class="nav-item active" data-page="overview"><span class="icon">-</span>Overview</button>
+    <button class="nav-item" data-page="trades"><span class="icon">-</span>Trades</button>
+    <button class="nav-item" data-page="exchangers"><span class="icon">-</span>Exchangers</button>
 
     <div class="nav-section">Finance</div>
-    <button class="nav-item" data-page="ledger"><span class="icon">📒</span>Ledger</button>
-    <button class="nav-item" data-page="fees"><span class="icon">💸</span>Fee Config</button>
-    <button class="nav-item" data-page="hot-wallets"><span class="icon">🏦</span>Hot Wallets</button>
+    <button class="nav-item" data-page="ledger"><span class="icon">-</span>Ledger</button>
+    <button class="nav-item" data-page="fees"><span class="icon">-</span>Fee Config</button>
+    <button class="nav-item" data-page="hot-wallets"><span class="icon">-</span>Hot Wallets</button>
 
     <div class="nav-section">Monitoring</div>
-    <button class="nav-item" data-page="webhooks"><span class="icon">🔗</span>Webhook Events</button>
-    <button class="nav-item" data-page="withdrawals"><span class="icon">↗</span>Withdrawals</button>
-    <button class="nav-item" data-page="audit"><span class="icon">📜</span>Audit Log</button>
-    <button class="nav-item" data-page="addresses"><span class="icon">📬</span>Deposit Addresses</button>
+    <button class="nav-item" data-page="webhooks"><span class="icon">-</span>Webhook Events</button>
+    <button class="nav-item" data-page="audit"><span class="icon">-</span>Audit Log</button>
+    <button class="nav-item" data-page="addresses"><span class="icon">-</span>Deposit Addresses</button>
 
     <div class="nav-section">Config</div>
-    <button class="nav-item" data-page="settings"><span class="icon">⚙️</span>Settings</button>
+    <button class="nav-item" data-page="settings"><span class="icon">-</span>Settings</button>
     <button class="nav-item" data-page="docs"><span class="icon">▤</span>Bot Docs</button>
   </nav>
-  <div class="sidebar-footer"><a href="/dashboard/logout">🚪 Sign Out</a></div>
+  <div class="sidebar-footer">
+    <a href="https://discord.gg/v9EuzwQB5w" target="_blank">Discord Support</a>
+    <a href="/dashboard/logout" style="margin-left:auto">Sign Out</a>
+  </div>
 </div>
 
 <!-- Main -->
@@ -267,7 +269,7 @@ function esc(value) {
 function toast(msg, type='info') {
   const el = document.createElement('div');
   el.className = 'toast toast-'+type;
-  el.innerHTML = (type==='success'?'✅':type==='error'?'❌':'ℹ️')+' <span>'+msg+'</span>';
+  el.innerHTML = (type==='success'?'✓':type==='error'?'✕':'ℹ')+' <span>'+msg+'</span>';
   $('toast-container').appendChild(el);
   setTimeout(()=>el.remove(), 4000);
 }
@@ -388,14 +390,14 @@ async function loadOverview() {
 
   <div class="metric-grid">
     <div class="card">
-      <div class="card-title">📊 Trade Status Breakdown</div>
+      <div class="card-title">Trade Status Breakdown</div>
       \${Object.entries(counts).map(([s,c])=>
         \`<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border)">
           <span>\${badge(s)}</span><strong>\${c}</strong></div>\`
       ).join('')}
     </div>
     <div class="card">
-      <div class="card-title">💰 Ledger Summary</div>
+      <div class="card-title">Ledger Summary</div>
       \${Object.entries(assetMap).length===0?'<p style="color:var(--muted)">No ledger data</p>':
         Object.entries(assetMap).map(([a,v])=>
           \`<div style="padding:7px 0;border-bottom:1px solid var(--border)">
@@ -417,7 +419,7 @@ async function loadOverview() {
   </div>
 
   <div class="card">
-    <div class="card-title">⏱ Recent Trades</div>
+    <div class="card-title">Recent Trades</div>
     <div class="table-wrap">
       <table>
         <thead><tr><th>ID</th><th>User</th><th>Asset</th><th>Amount</th><th>Status</th><th>Created</th></tr></thead>
@@ -529,7 +531,7 @@ async function loadTradeDetail(id) {
   const d = await api('/trades/'+id);
   const t = d.trade;
   modal(\`
-  <h3>💱 Trade \${esc(t.id.slice(0,8))}…</h3>
+  <h3>Trade ${esc(t.id.slice(0,8))}…</h3>
   <div class="form-grid">
     \${[['ID',t.id],['Status',badge(t.status)],['User',t.user_discord_id],
        ['Exchanger',t.exchanger_id||'—'],['Asset',t.asset],['Amount',num(t.amount)],
@@ -557,14 +559,15 @@ async function loadTradeDetail(id) {
 // ─────────────────────────────────────────────────────────────
 // EXCHANGERS
 // ─────────────────────────────────────────────────────────────
-async function loadExchangers() {
+  async function loadExchangers() {
   topbar.textContent='Exchangers';
-  actions.innerHTML=\`<button class="btn btn-primary" onclick="openVerifyModal()">+ Verify Exchanger</button><button class="btn btn-danger" onclick="bulkBanExchangers()">Ban selected</button>\`;
+  actions.innerHTML=`<button class="btn btn-primary" onclick="openVerifyModal()">+ Verify Exchanger</button>
+    <a href="https://discord.gg/v9EuzwQB5w" target="_blank" class="btn btn-ghost" style="margin-left:8px">Discord</a>`;
   loading();
   const exchangers = await api('/exchangers');
   page.innerHTML=\`
   <div class="card">
-    <div class="card-title">👤 Verified Exchangers <input class="topbar-search" style="margin-left:auto;width:220px" placeholder="Filter username or ID" oninput="filterRows(this.value,'exchanger-row')"></div>
+    <div class="card-title">Verified Exchangers <input class="topbar-search" style="margin-left:auto;width:220px" placeholder="Filter username or ID" oninput="filterRows(this.value,'exchanger-row')"></div>
     <div class="table-wrap">
       <table>
         <thead><tr><th><input type="checkbox" onchange="toggleSelection('exchanger',this.checked)"></th><th>Username</th><th>Discord ID</th><th>Status</th><th>Verified By</th><th>Verified At</th><th></th></tr></thead>
@@ -601,7 +604,7 @@ async function loadExchangerDetail(id) {
   const e = d.exchanger;
   const bals = Object.values(d.balances).filter(b=>parseFloat(b.available)>0||parseFloat(b.escrow)>0);
   modal(\`
-  <h3>👤 \${esc(e.discord_username)}</h3>
+  <h3>${esc(e.discord_username)}</h3>
   <div style="font-size:12px;margin-bottom:16px">
     \${[['ID',e.id],['Discord ID',e.discord_id],['Status',badge(e.is_banned?'BANNED':'ACTIVE')],
        ['Verified',ts(e.verified_at)],['Ban reason',e.ban_reason||'—']
@@ -609,7 +612,7 @@ async function loadExchangerDetail(id) {
       border-bottom:1px solid var(--border)">
       <span style="color:var(--muted)">\${esc(l)}</span><span>\${typeof v==='string' ? esc(v) : v}</span></div>\`).join('')}
   </div>
-  <div class="card-title">💰 Balances</div>
+  <div class="card-title">Balances</div>
   \${bals.length===0?'<p style="color:var(--muted);font-size:12px">No balances</p>':
     bals.map(b=>\`<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;display:flex;justify-content:space-between">
       <strong>\${b.asset}</strong>
@@ -628,8 +631,8 @@ async function loadExchangerDetail(id) {
 }
 
 function openVerifyModal() {
-  modal(\`
-  <h3>✅ Verify Exchanger</h3>
+  modal(`
+  <h3>Verify Exchanger</h3>
   <div class="form-grid">
     <div class="form-group"><label>Discord ID</label><input id="v-did" placeholder="123456789012345678"></div>
     <div class="form-group"><label>Username</label><input id="v-uname" placeholder="user#0000"></div>
@@ -638,7 +641,7 @@ function openVerifyModal() {
     <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
     <button class="btn btn-primary" onclick="doVerify()">Verify</button>
   </div>
-  \`);
+  `);
 }
 
 async function doVerify() {
@@ -652,14 +655,14 @@ async function doVerify() {
 }
 
 function openBanModal(discordId, username) {
-  modal(\`
-  <h3>⛔ Ban \${username}</h3>
+  modal(`
+  <h3>Ban ${username}</h3>
   <div class="form-group"><label>Reason</label><input id="ban-reason" placeholder="Reason for ban"></div>
   <div class="modal-footer">
     <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
-    <button class="btn btn-danger" onclick="doBan('\${discordId}')">Confirm Ban</button>
+    <button class="btn btn-danger" onclick="doBan('${discordId}')">Confirm Ban</button>
   </div>
-  \`);
+  `);
 }
 
 async function doBan(discordId) {
@@ -670,16 +673,16 @@ async function doBan(discordId) {
 }
 
 function openCreditModal(id, name) {
-  modal(\`
-  <h3>💰 Credit — \${name}</h3>
-  \${ledgerForm(id,'credit')}
-  \`);
+  modal(`
+  <h3>Credit — ${name}</h3>
+  ${ledgerForm(id,'credit')}
+  `);
 }
 function openDebitModal(id, name) {
-  modal(\`
-  <h3>💸 Debit — \${name}</h3>
-  \${ledgerForm(id,'debit')}
-  \`);
+  modal(`
+  <h3>Debit — ${name}</h3>
+  ${ledgerForm(id,'debit')}
+  `);
 }
 function ledgerForm(id, type) {
   return \`<div class="form-grid">
@@ -794,7 +797,7 @@ async function loadHotWallets() {
   const wallets = await api('/hot-wallets');
   page.innerHTML=\`
   <div class="card">
-    <div class="card-title">🏦 Hot Wallet Balances</div>
+    <div class="card-title">Hot Wallet Balances</div>
     \${wallets.length===0?empty('No hot wallet data recorded yet'):
       '<div class="table-wrap"><table><thead><tr><th>Asset</th><th>Address</th><th>Balance</th><th>Last Checked</th></tr></thead><tbody>'+
       wallets.map(w=>\`<tr>
@@ -817,7 +820,7 @@ async function loadWebhooks(p=0) {
   const d = await api('/webhooks?page='+p+'&limit=50');
   page.innerHTML=\`
   <div class="card">
-    <div class="card-title">🔗 Incoming Webhook Events</div>
+    <div class="card-title">Incoming Webhook Events</div>
     <div class="table-wrap">
       <table>
         <thead><tr><th>Time</th><th>Provider</th><th>Event ID</th><th>Status</th><th>Error</th></tr></thead>
@@ -922,7 +925,7 @@ async function loadAddresses() {
   const rows = await api('/addresses');
   page.innerHTML=\`
   <div class="card">
-    <div class="card-title">📬 All Deposit Addresses</div>
+    <div class="card-title">All Deposit Addresses</div>
     <div class="table-wrap">
       <table>
         <thead><tr><th>Exchanger</th><th>Asset</th><th>Chain</th><th>Address</th><th>Path</th></tr></thead>
@@ -950,6 +953,16 @@ async function loadSettings() {
   loading();
   const settings = await api('/settings');
 
+  // Keep the history channel configurable even before migration 014 has run.
+  if (!settings.some(s => s.key === 'CHANNEL_HISTORY')) {
+    settings.push({
+      key: 'CHANNEL_HISTORY',
+      value: '',
+      description: 'Discord channel ID where completed exchange history cards are posted',
+      category: 'discord',
+    });
+  }
+
   // Group by category
   const cats = {};
   settings.forEach(s => {
@@ -973,11 +986,11 @@ async function loadSettings() {
     <div class="card-title">\${{
       discord:'🎮 Discord Role & Channel IDs',
       timeouts:'⏱ Trade Timeouts',
-      limits:'🚦 Rate Limits',
-      thresholds:'🔔 Hot Wallet Alert Thresholds',
-      fees:'💸 Default Fees',
-      network:'🌐 Network',
-      general:'⚙️ General'
+    limits:'Rate Limits',
+    thresholds:'Hot Wallet Alert Thresholds',
+    fees:'Default Fees',
+    network:'Network',
+    general:'General'
     }[cat]||cat.toUpperCase()}</div>
     \${items.map(s=>\`
     <div class="setting-row" id="row-\${s.key}">

@@ -423,9 +423,10 @@ export async function handleBan(interaction: ChatInputCommandInteraction): Promi
 
     // Revoke exchanger role
     try {
-      const { config: cfg } = await import('../../config/env');
+      const { getRoleExchanger } = await import('../../config/runtimeConfig');
+      const roleId = await getRoleExchanger();
       const member = await interaction.guild?.members.fetch(target.id);
-      if (member) await member.roles.remove(cfg.ROLE_EXCHANGER);
+      if (member && roleId) await member.roles.remove(roleId);
     } catch { /* non-fatal */ }
 
     await interaction.editReply({

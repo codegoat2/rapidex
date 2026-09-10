@@ -19,7 +19,8 @@
  *
  *         F2F  → select menu  panel:f2f_from
  *                  → select menu  panel:f2f_to:<fromMethod>
- *                       → modal  trade_modal:FIAT_TO_FIAT:<fromMethod>:<toMethod>
+ *                  → select menu  panel:f2f_asset:<fromMethod>:<toMethod>
+ *                       → modal  trade_modal:FIAT_TO_FIAT:<fromMethod>:<toMethod>:<asset>
  *
  * Trade lifecycle buttons:
  *   claim:<tradeId>
@@ -345,7 +346,17 @@ export async function handleSelectMenu(interaction: StringSelectMenuInteraction)
       case 'f2f_to': {
         const fromMethod = ctx[0]!;
         const toMethod   = interaction.values[0]!;
-        await showTradeModal(interaction, 'FIAT_TO_FIAT', fromMethod, toMethod);
+        await interaction.update({
+          content: '**Step 4 of 4** — Which crypto should the exchanger hold as collateral?',
+          components: [row(cryptoSelect(`panel:f2f_asset:${fromMethod}:${toMethod}`, 'Select collateral crypto'))],
+        });
+        break;
+      }
+
+      // ── F2F step 4: collateral selected → open modal ─────────────────────
+      case 'f2f_asset': {
+        const [fromMethod, toMethod] = ctx;
+        await showTradeModal(interaction, 'FIAT_TO_FIAT', fromMethod!, toMethod!, interaction.values[0]!);
         break;
       }
 
@@ -412,6 +423,7 @@ async function handleStartExchange(interaction: ButtonInteraction): Promise<void
 // direction: BUY | SELL | SWAP | FIAT_TO_FIAT
 // param1:    crypto (BUY/SELL/SWAP from) OR fiat method (F2F from)
 // param2:    fiat method (BUY/SELL) OR crypto to (SWAP) OR fiat method to (F2F)
+// param3:    collateral crypto asset (F2F)
 // ---------------------------------------------------------------------------
 
 async function showTradeModal(
@@ -419,6 +431,7 @@ async function showTradeModal(
   direction: string,
   param1: string,
   param2: string,
+  param3?: string,
 ): Promise<void> {
   const isSwap = direction === 'SWAP';
   const isF2F  = direction === 'FIAT_TO_FIAT';
@@ -431,14 +444,14 @@ async function showTradeModal(
   };
 
   const modal = new ModalBuilder()
-    .setCustomId(`trade_modal:${direction}:${param1}:${param2}`)
+    .setCustomId(`trade_modal:${direction}:${param1}:${param2}${param3 ? `:${param3}` : ''}`)
     .setTitle(titleMap[direction] ?? 'Trade Details');
 
   // Amount field — label adapts per direction
   const amountLabel = isSwap
     ? `Amount of ${param1} to send`
     : isF2F
-      ? 'Amount to send'
+      ? 'Fiat amount to send'
       : direction === 'BUY'
         ? `Fiat amount to spend (${param1} value)`
         : `Fiat amount to receive (${param1} value)`;
@@ -450,6 +463,14 @@ async function showTradeModal(
     .setRequired(true)
     .setPlaceholder(isF2F ? '500' : '100')
     .setMaxLength(20);
+
+  const collateralAmountInput = new TextInputBuilder()
+    .setCustomId('collateral_amount')
+    .setLabel(`Collateral amount (${param3 ?? 'crypto'})`)
+    .setStyle(TextInputStyle.Short)
+    .setRequired(true)
+    .setPlaceholder('0.01')
+    .setMaxLength(30);
 
   // Currency (not needed for pure SWAP)
   const currencyInput = new TextInputBuilder()
@@ -472,6 +493,10 @@ async function showTradeModal(
   const components: ActionRowBuilder<TextInputBuilder>[] = [
     new ActionRowBuilder<TextInputBuilder>().addComponents(amountInput),
   ];
+
+  if (isF2F) {
+    components.push(new ActionRowBuilder<TextInputBuilder>().addComponents(collateralAmountInput));
+  }
 
   if (!isSwap) {
     components.push(new ActionRowBuilder<TextInputBuilder>().addComponents(currencyInput));

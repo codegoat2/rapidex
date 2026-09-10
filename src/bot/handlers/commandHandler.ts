@@ -9,7 +9,7 @@ import { execute as executeProfile } from '../commands/profile';
 import { execute as executeSetupPanel } from '../commands/setupPanel';
 import { execute as executeSetupForum } from '../commands/setupForum';
 import { execute as executeHelp } from '../commands/help';
-import { handleDepositAddresses, handleMyTrades, handleWithdraw, handleSetTerms, handleMyTerms } from '../commands/exchangerCommands';
+import { handleDepositAddresses, handleMyTrades, handleWithdraw, handleSetTerms, handleMyTerms, handleSetPass } from '../commands/exchangerCommands';
 import {
   handleBalance,
   handleCredit,
@@ -38,6 +38,7 @@ export async function handleCommand(interaction: ChatInputCommandInteraction): P
       case 'withdraw':            await handleWithdraw(interaction);       break;
       case 'set-terms':          await handleSetTerms(interaction);       break;
       case 'my-terms':           await handleMyTerms(interaction);        break;
+      case 'setpass':            await handleSetPass(interaction);        break;
       case 'balance':            await handleBalance(interaction);       break;
       case 'credit':             await handleCredit(interaction);        break;
       case 'debit':              await handleDebit(interaction);         break;
