@@ -33,6 +33,7 @@ import {
 import {
   claimTradeWithEscrow,
   releaseEscrow,
+  settleTradeProfit,
   InsufficientBalanceError,
 } from '../../ledger/ledgerService';
 import {
@@ -872,6 +873,7 @@ export async function handleExternalPaymentReceived(
     note:           'Buyer confirmed receipt of external payment',
     updates:        { completedAt: new Date() },
   });
+  await settleTradeProfit(trade.id);
 
   const channel = interaction.guild?.channels.cache.get(trade.ticket_channel_id) as TextChannel | undefined;
   if (channel) {

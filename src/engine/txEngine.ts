@@ -26,8 +26,8 @@ import { rpcUrl, blockbookUrl, blockbookHeaders, BEP20_CONTRACTS } from '../conf
 import { logger } from '../utils/logger';
 import { rederivePrivateKey, rederiveSolKeypair } from '../wallet/hdWallet';
 import { getDerivationPath } from '../wallet/addressService';
-import { recordWithdrawal, recordFee } from '../ledger/ledgerService';
-import { feeKey, withdrawalKey } from '../security/idempotency';
+import { recordWithdrawal, settleTradeProfit } from '../ledger/ledgerService';
+import { withdrawalKey } from '../security/idempotency';
 import { db } from '../db/client';
 import { getTradeById, transitionTrade } from './tradeService';
 import type { DbTrade, Asset } from '../types';
@@ -123,19 +123,6 @@ export async function sendTradePayment(
     amount: trade.amount, txId,
     idempotencyKey: withdrawalKey(trade.id, txId),
   });
-
-  const [feeConfig] = await db<{ fee_percentage: string; min_fee_amount: string }[]>`
-    SELECT fee_percentage, min_fee_amount FROM fee_config WHERE asset = ${trade.asset}
-  `;
-  if (feeConfig) {
-    const feeAmount = calculateFee(trade.amount, feeConfig.fee_percentage, feeConfig.min_fee_amount);
-    if (feeAmount !== '0') {
-      await recordFee({
-        exchangerId, tradeId: trade.id, asset: trade.asset, amount: feeAmount,
-        idempotencyKey: feeKey(trade.id),
-      });
-    }
-  }
 
   const updated = await transitionTrade({
     tradeId: trade.id, to: 'CRYPTO_SENT',
@@ -365,6 +352,7 @@ async function waitForConfirmations(trade: DbTrade, _exchangerId: string, txId: 
           note: `${confs} confirmations received`,
           updates: { completedAt: new Date() },
         });
+        await settleTradeProfit(trade.id);
         await db`
           UPDATE withdrawals
           SET status = 'CONFIRMED', tx_id = ${txId}, updated_at = NOW()

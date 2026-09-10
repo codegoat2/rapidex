@@ -31,6 +31,7 @@ import { db } from '../db/client';
 import { isTransitionAllowed } from '../engine/tradeService';
 import { logger } from '../utils/logger';
 import type { Asset, LedgerEntryType, DbLedgerEntry, DbTrade } from '../types';
+import { maxDecimal, multiplyDecimal } from '../quote/money';
 
 // Shared SQL type that works for both pool and transaction contexts
 type AnySql = postgres.Sql;
@@ -554,6 +555,93 @@ export async function recordFee(params: {
       'Ledger: FEE recorded',
     );
     return entry;
+  });
+}
+
+/**
+ * Settles the configured trade fee after a trade reaches COMPLETED.
+ * Half is credited to the exchanger and half is retained in the admin profit ledger.
+ * The trade-level unique index makes this safe to call from every completion path.
+ */
+export async function settleTradeProfit(tradeId: string): Promise<{
+  feeAmount: string;
+  exchangerShare: string;
+  adminShare: string;
+} | null> {
+  return db.begin(async (sql) => {
+    const [trade] = await sql<{
+      id: string;
+      exchanger_id: string | null;
+      asset: Asset;
+      amount: string;
+      fee_amount: string | null;
+    }[]>`
+      SELECT id, exchanger_id, asset, amount, fee_amount
+      FROM trades WHERE id = ${tradeId} FOR UPDATE
+    `;
+    if (!trade || !trade.exchanger_id) return null;
+
+    const existing = await sql<{ id: string; amount: string }[]>`
+      SELECT id, amount FROM admin_profit_entries
+      WHERE trade_id = ${tradeId} AND type = 'PROFIT_CREDIT'
+    `;
+    if (existing.length > 0) return null;
+
+    const [feeConfig] = await sql<{ fee_percentage: string; min_fee_amount: string }[]>`
+      SELECT fee_percentage, min_fee_amount FROM fee_config WHERE asset = ${trade.asset}
+    `;
+    const feeAmount = trade.fee_amount ?? (
+      feeConfig
+        ? maxDecimal(
+            multiplyDecimal(trade.amount, feeConfig.fee_percentage, 4),
+            feeConfig.min_fee_amount,
+          )
+        : '0'
+    );
+    if (toBigInt(feeAmount) <= 0n) return null;
+
+    const exchangerShare = fromBigInt(toBigInt(feeAmount) / 2n);
+    const adminShare = fromBigInt(toBigInt(feeAmount) - toBigInt(exchangerShare));
+
+    if (toBigInt(exchangerShare) > 0n) {
+      const { available, escrow } = await readBalanceLocked(
+        sql as unknown as postgres.Sql, trade.exchanger_id, trade.asset,
+      );
+      await insertEntry(sql as unknown as postgres.Sql, {
+        exchangerId: trade.exchanger_id,
+        tradeId: trade.id,
+        type: 'MANUAL_CREDIT',
+        asset: trade.asset,
+        amount: exchangerShare,
+        balanceBefore: available,
+        balanceAfter: add(available, exchangerShare),
+        escrowBefore: escrow,
+        escrowAfter: escrow,
+        reference: `50% fee share for trade ${trade.id}`,
+        idempotencyKey: `PROFIT_EXCHANGER:${trade.id}`,
+      });
+    }
+
+    await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`admin-profit:${trade.asset}`}, 0))`;
+    const [lastAdmin] = await sql<{ balance_after: string }[]>`
+      SELECT balance_after FROM admin_profit_entries
+      WHERE asset = ${trade.asset}
+      ORDER BY created_at DESC, id DESC LIMIT 1
+      FOR UPDATE
+    `;
+    const adminBefore = lastAdmin?.balance_after ?? '0';
+    await sql`
+      INSERT INTO admin_profit_entries (
+        trade_id, asset, type, amount, balance_before, balance_after,
+        reference, idempotency_key
+      ) VALUES (
+        ${trade.id}, ${trade.asset}, 'PROFIT_CREDIT', ${adminShare},
+        ${adminBefore}, ${add(adminBefore, adminShare)},
+        ${`50% admin fee share for trade ${trade.id}`}, ${`PROFIT_ADMIN:${trade.id}`}
+      )
+    `;
+
+    return { feeAmount, exchangerShare, adminShare };
   });
 }
 
