@@ -92,6 +92,19 @@ export function createWebhookApp(): express.Application {
     res.send(renderBecomeExchangerPage());
   });
 
+  app.get('/api/exchanges/lookup', async (req: Request, res: Response) => {
+    try {
+      const id = String(req.query['id'] ?? '').trim();
+      if (!id) return res.json({ found: false });
+      const [row] = await db<any[]>`
+        SELECT id FROM trades WHERE id = ${id}
+      `;
+      return res.json({ found: !!row });
+    } catch {
+      return res.json({ found: false });
+    }
+  });
+
   app.get('/history/exchanges/:id', async (req: Request, res: Response) => {
     try {
       const [trade] = await db<any[]>`

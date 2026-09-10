@@ -5,6 +5,28 @@
 
 export const DISCORD_INVITE = 'https://discord.gg/v9EuzwQB5w';
 
+const HOME_SCRIPT = `<script>
+document.addEventListener('DOMContentLoaded',function(){
+  var form=document.getElementById('exchange-search-form');
+  var input=document.getElementById('exchange-search-input');
+  var msg=document.getElementById('exchange-search-msg');
+  if(!form||!input)return;
+  form.addEventListener('submit',function(e){
+    e.preventDefault();
+    var q=input.value.trim();
+    if(!q){input.focus();return;}
+    msg.textContent='Searching...';msg.style.color='#8891a8';
+    fetch('/api/exchanges/lookup?id='+encodeURIComponent(q))
+      .then(function(r){return r.json().then(function(d){return{ok:r.ok,data:d}});})
+      .then(function(result){
+        if(result.ok&&result.data.found){window.location.href='/history/exchanges/'+encodeURIComponent(q);}
+        else{msg.textContent='No exchange found with that ID. Please check and try again.';msg.style.color='#f87171';}
+      })
+      .catch(function(){msg.textContent='Something went wrong. Please try again later.';msg.style.color='#f87171';});
+  });
+});
+</script>`;
+
 const STYLE = `<style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 *{box-sizing:border-box;margin:0;padding:0}
@@ -137,6 +159,14 @@ footer{background:var(--s1);border-top:1px solid var(--br);padding:60px 40px 40p
 .fbot a:hover{color:var(--a2)}
 .fbot-links{display:flex;gap:22px}
 
+/* EXCHANGE SEARCH */
+.exch-search{display:flex;gap:0;background:var(--s2);border:1px solid var(--br2);border-radius:10px;overflow:hidden;transition:border-color .2s}
+.exch-search:focus-within{border-color:var(--a)}
+.exch-search input{flex:1;background:transparent;border:none;padding:13px 16px;color:var(--t);font:inherit;font-size:14px;outline:none}
+.exch-search input::placeholder{color:var(--sub)}
+.exch-search-btn{background:var(--g);color:#fff;border:none;padding:0 22px;font:600 14px/1 inherit;font-family:inherit;cursor:pointer;white-space:nowrap;transition:opacity .2s}
+.exch-search-btn:hover{opacity:.85}
+
 @media(max-width:900px){.fi{grid-template-columns:1fr 1fr;gap:32px}}
 @media(max-width:700px){
   .page{padding:48px 20px 80px}
@@ -221,6 +251,7 @@ ${STYLE}
 <body>
 ${NAV}
 ${body}
+${HOME_SCRIPT}
 ${FOOT}
 </body>
 </html>`;
@@ -237,6 +268,14 @@ export function renderHomePage(): string {
     <div class="btns">
       <a href="${DISCORD_INVITE}" target="_blank" rel="noopener" class="btn btn-p btn-lg">Start Trading</a>
       <a href="/how-to-start" class="btn btn-s btn-lg">How It Works</a>
+    </div>
+
+    <div style="margin-top:48px;max-width:480px;margin-left:auto;margin-right:auto">
+      <form id="exchange-search-form" class="exch-search" autocomplete="off">
+        <input id="exchange-search-input" type="text" placeholder="Search for an exchange ID..." autocomplete="off" />
+        <button type="submit" class="exch-search-btn">Search</button>
+      </form>
+      <p id="exchange-search-msg" style="margin-top:10px;font-size:13px;min-height:18px"></p>
     </div>
   </div>
 
