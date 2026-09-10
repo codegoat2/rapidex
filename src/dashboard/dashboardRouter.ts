@@ -165,6 +165,13 @@ function renderLoginPage(error?: string): string {
       <input type="password" name="password" placeholder="Enter dashboard password" autofocus required>
       <button class="btn" type="submit">Sign In</button>
     </form>
+    <div style="margin-top:20px;text-align:center;font-size:12px;color:#64748b">
+      <a href="/" style="color:#6366f1;margin:0 8px">Home</a> ·
+      <a href="/about" style="color:#6366f1;margin:0 8px">About</a> ·
+      <a href="/how-to-start" style="color:#6366f1;margin:0 8px">How to Start</a> ·
+      <a href="/become-exchanger" style="color:#6366f1;margin:0 8px">Become Exchanger</a> ·
+      <a href="/terms" style="color:#6366f1;margin:0 8px">Terms</a>
+    </div>
   </div>
 </body>
 </html>`;

@@ -17,6 +17,13 @@ import { checkWebhookRateLimit } from '../security/rateLimiter';
 import { processDeposit } from './depositProcessor';
 import dashboardRouter from '../dashboard/dashboardRouter';
 import { getHealthStatus } from './healthCheck';
+import {
+  renderHomePage,
+  renderAboutPage,
+  renderTermsPage,
+  renderHowToStartPage,
+  renderBecomeExchangerPage,
+} from '../dashboard/pages';
 
 // ---------------------------------------------------------------------------
 // App
@@ -61,9 +68,25 @@ export function createWebhookApp(): express.Application {
   // ── Admin Dashboard ───────────────────────────────────────────────────
   app.use('/dashboard', dashboardRouter);
 
-  // Root redirect to dashboard
+  // ── Public Pages (root level) ──────────────────────────────────────────
   app.get('/', (_req: Request, res: Response) => {
-    res.redirect('/dashboard/');
+    res.send(renderHomePage());
+  });
+
+  app.get('/about', (_req: Request, res: Response) => {
+    res.send(renderAboutPage());
+  });
+
+  app.get('/terms', (_req: Request, res: Response) => {
+    res.send(renderTermsPage());
+  });
+
+  app.get('/how-to-start', (_req: Request, res: Response) => {
+    res.send(renderHowToStartPage());
+  });
+
+  app.get('/become-exchanger', (_req: Request, res: Response) => {
+    res.send(renderBecomeExchangerPage());
   });
 
   return app;

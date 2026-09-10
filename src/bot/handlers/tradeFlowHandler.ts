@@ -604,43 +604,64 @@ export async function handleTermsDecline(
 // ---------------------------------------------------------------------------
 
 /**
- * Internal wallet release — existing flow:
- * show wallet-address modal → handleWalletAddressSubmit → txEngine
+ * Internal wallet release — exchanger clicks "Internal Wallet".
+ * Bot posts a message in the ticket channel prompting the BUYER to submit
+ * their destination wallet address via a button → modal flow.
  */
 export async function handleReleaseInternal(
   interaction: ButtonInteraction,
   tradeId: string,
 ): Promise<void> {
+  await interaction.deferReply({ ephemeral: true });
+
   const trade = await getTradeById(tradeId);
-  if (!trade) { await interaction.reply({ content: '❌ Trade not found.', ephemeral: true }); return; }
+  if (!trade) { await interaction.editReply('❌ Trade not found.'); return; }
 
   const exchanger = await getExchangerByDiscordId(interaction.user.id);
   if (!exchanger || trade.exchanger_id !== exchanger.id) {
-    await interaction.reply({ content: '❌ You are not the exchanger on this trade.', ephemeral: true });
+    await interaction.editReply('❌ You are not the exchanger on this trade.');
     return;
   }
   if (trade.status !== 'FIAT_SENT') {
-    await interaction.reply({ content: `❌ Trade is not in FIAT_SENT state (current: ${trade.status}).`, ephemeral: true });
+    await interaction.editReply(`❌ Trade is not in FIAT_SENT state (current: ${trade.status}).`);
     return;
   }
 
-  // Show wallet address modal (same as the old "Release Crypto" button)
-  const { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder } = await import('discord.js');
-  const modal = new ModalBuilder()
-    .setCustomId(`wallet_address:${tradeId}`)
-    .setTitle('Release — Enter Buyer\'s Wallet Address');
+  // Ask the buyer in the ticket channel to provide their wallet address
+  const channel = interaction.guild?.channels.cache.get(trade.ticket_channel_id) as TextChannel | undefined;
+  if (channel) {
+    const { ActionRowBuilder: AR, ButtonBuilder: BB, ButtonStyle: BS, EmbedBuilder: EB } = await import('discord.js');
+    const embed = new EB()
+      .setColor(COLORS.PRIMARY)
+      .setTitle('📬 Enter Your Wallet Address')
+      .setDescription(
+        `<@${trade.user_discord_id}> — the exchanger is ready to release your **${trade.asset}**.\n\n` +
+        `Please click **Submit Wallet Address** below and enter the address where you want to receive your funds.\n\n` +
+        `⚠️ **Double-check your address before submitting. Transactions cannot be reversed.**`,
+      )
+      .addFields(
+        { name: '💎 Asset',  value: trade.asset,                                      inline: true },
+        { name: '🔢 Amount', value: `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``, inline: true },
+      )
+      .setFooter({ text: 'RapidEx · Only submit your own wallet address' })
+      .setTimestamp();
 
-  const addressInput = new TextInputBuilder()
-    .setCustomId('wallet_address')
-    .setLabel('Buyer\'s destination wallet address')
-    .setStyle(TextInputStyle.Short)
-    .setRequired(true)
-    .setMinLength(10)
-    .setMaxLength(200)
-    .setPlaceholder('e.g. bc1q... / 0x... / 4...');
+    const row = new AR<import('discord.js').ButtonBuilder>().addComponents(
+      new BB()
+        .setCustomId(`submit_wallet:${tradeId}`)
+        .setLabel('📬 Submit Wallet Address')
+        .setStyle(BS.Primary),
+    );
 
-  modal.addComponents(new ActionRowBuilder<import('discord.js').TextInputBuilder>().addComponents(addressInput));
-  await interaction.showModal(modal);
+    await channel.send({
+      content: `<@${trade.user_discord_id}>`,
+      embeds: [embed],
+      components: [row],
+    });
+  }
+
+  await interaction.editReply('✅ The buyer has been prompted to submit their wallet address.');
+  logger.info({ tradeId: trade.id, exchangerId: exchanger.id }, 'Internal release: buyer wallet address requested');
 }
 
 /**
