@@ -24,6 +24,8 @@ import {
   renderHowToStartPage,
   renderBecomeExchangerPage,
 } from '../dashboard/pages';
+import { renderExchangeHistoryPage } from '../dashboard/historyPage';
+import { db } from '../db/client';
 
 // ---------------------------------------------------------------------------
 // App
@@ -87,6 +89,28 @@ export function createWebhookApp(): express.Application {
 
   app.get('/become-exchanger', (_req: Request, res: Response) => {
     res.send(renderBecomeExchangerPage());
+  });
+
+  app.get('/history/exchanges/:id', async (req: Request, res: Response) => {
+    try {
+      const [trade] = await db<any[]>`
+        SELECT t.*, e.discord_username AS exchanger_username
+        FROM trades t
+        LEFT JOIN exchangers e ON e.id = t.exchanger_id
+        WHERE t.id = ${req.params['id']}
+      `;
+      if (!trade) {
+        res.status(404).send(renderExchangeHistoryPage(null, []));
+        return;
+      }
+      const logs = await db<any[]>`
+        SELECT * FROM trade_logs WHERE trade_id = ${req.params['id']} ORDER BY created_at ASC
+      `;
+      res.send(renderExchangeHistoryPage(trade, logs));
+    } catch (err) {
+      logger.error({ err, tradeId: req.params['id'] }, 'Failed to render exchange history');
+      res.status(500).send('Unable to load exchange history');
+    }
   });
 
   return app;

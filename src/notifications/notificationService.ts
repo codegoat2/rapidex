@@ -5,13 +5,14 @@
  * DM failures (user has DMs closed) are caught and logged — never throw.
  */
 
-import { EmbedBuilder, TextChannel } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, TextChannel } from 'discord.js';
 import { getDiscordClient } from '../bot/client';
 import { getTradeById } from '../engine/tradeService';
 import { config } from '../config/env';
 import { logger } from '../utils/logger';
 import { COLORS } from '../bot/embeds/colors';
 import { assetLabel, fiatMethodLabel } from '../bot/embeds/tradeEmbed';
+import type { DbTrade } from '../types';
 
 // ---------------------------------------------------------------------------
 // Generic helpers
@@ -141,6 +142,43 @@ export async function notifyTradeCompleted(tradeId: string): Promise<void> {
 
   await postToChannel(trade.ticket_channel_id, embed);
   await dmUser(trade.user_discord_id, embed);
+  await postCompletedTradeHistory(trade);
+}
+
+async function postCompletedTradeHistory(trade: DbTrade): Promise<void> {
+  try {
+    const { getChannelHistory } = await import('../config/runtimeConfig');
+    const channelId = await getChannelHistory();
+    if (!channelId) return;
+
+    const baseUrl = config.WEBHOOK_BASE_URL.replace(/\/$/, '');
+    const transcriptUrl = `${baseUrl}/history/exchanges/${encodeURIComponent(trade.id)}`;
+    const historyEmbed = new EmbedBuilder()
+      .setColor(COLORS.COMPLETED)
+      .setTitle('✅ Transaction Completed')
+      .addFields(
+        { name: '🔄 Exchange', value: `${trade.asset} → ${trade.fiat_currency}`, inline: true },
+        { name: '💵 Amount', value: `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``, inline: true },
+        { name: '🎫 Ticket', value: `\`${trade.id}\``, inline: false },
+      )
+      .setFooter({ text: 'RapidEx · Powered by RapidEx' })
+      .setTimestamp(trade.completed_at ?? new Date());
+
+    const client = getDiscordClient();
+    const channel = client.channels.cache.get(channelId) as TextChannel | undefined;
+    if (!channel) return;
+    await channel.send({
+      embeds: [historyEmbed],
+      components: [new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder()
+          .setLabel('View Transcript')
+          .setStyle(ButtonStyle.Link)
+          .setURL(transcriptUrl),
+      )],
+    });
+  } catch (err) {
+    logger.warn({ err, tradeId: trade.id }, 'Failed to post completed trade history — non-fatal');
+  }
 }
 
 export async function notifyTradeExpired(tradeId: string): Promise<void> {

@@ -34,7 +34,7 @@ const BOOLEAN_SETTINGS = new Set(['MAINTENANCE_MODE']);
 const NETWORK_SETTINGS = new Set(['NETWORK']);
 const ID_SETTINGS = new Set([
   'ROLE_ADMIN', 'ROLE_EXCHANGER', 'CHANNEL_ADMIN_ALERTS', 'CHANNEL_ANNOUNCEMENTS',
-  'TICKET_CATEGORY_ID', 'FORUM_CHANNEL_ID',
+  'TICKET_CATEGORY_ID', 'FORUM_CHANNEL_ID', 'CHANNEL_HISTORY',
 ]);
 
 function validateSetting(key: string, value: string): void {
