@@ -1,12 +1,32 @@
 /**
  * Fee Configuration Service
- * Manages fee calculations and retrieval from the database.
+ * Manages fee calculations with hardcoded fee configuration.
  */
 
-import { db } from '../db/client';
-import { logger } from '../utils/logger';
-
-export const DEFAULT_FEE_PERCENTAGE = 10; // 10% default fee
+// Hardcoded fee configuration for each currency
+const FIAT_FEE_CONFIGS: Record<'EUR' | 'USD' | 'GBP', FiatFeeConfig> = {
+  EUR: {
+    currency: 'EUR',
+    feePercentage: 10,
+    minFeeAmount: 0,
+    updatedByDiscordId: 'SYSTEM',
+    updatedAt: new Date().toISOString(),
+  },
+  USD: {
+    currency: 'USD',
+    feePercentage: 10,
+    minFeeAmount: 0,
+    updatedByDiscordId: 'SYSTEM',
+    updatedAt: new Date().toISOString(),
+  },
+  GBP: {
+    currency: 'GBP',
+    feePercentage: 10,
+    minFeeAmount: 0,
+    updatedByDiscordId: 'SYSTEM',
+    updatedAt: new Date().toISOString(),
+  },
+};
 
 // Minimum fees in USD for payment methods
 export const MINIMUM_FEES: Record<string, number> = {
@@ -41,45 +61,12 @@ export interface FeeCalculationResult {
 export async function getFiatFeeConfig(
   currency: 'EUR' | 'USD' | 'GBP'
 ): Promise<FiatFeeConfig> {
-  try {
-    const rows = await db<FiatFeeConfig[]>`
-      SELECT 
-        currency,
-        fee_percentage as "feePercentage",
-        min_fee_amount as "minFeeAmount",
-        updated_by_discord_id as "updatedByDiscordId",
-        updated_at as "updatedAt"
-      FROM fiat_fee_config
-      WHERE currency = ${currency}
-    `;
-
-    if (rows.length === 0) {
-      // Return defaults if not in database
-      return {
-        currency,
-        feePercentage: DEFAULT_FEE_PERCENTAGE,
-        minFeeAmount: MINIMUM_FEES[currency] || 0,
-        updatedByDiscordId: 'SYSTEM',
-        updatedAt: new Date().toISOString(),
-      };
-    }
-
-    return rows[0];
-  } catch (err) {
-    logger.error(`Failed to get fee config for ${currency}: ${String(err)}`);
-    // Return defaults on error
-    return {
-      currency,
-      feePercentage: DEFAULT_FEE_PERCENTAGE,
-      minFeeAmount: MINIMUM_FEES[currency] || 0,
-      updatedByDiscordId: 'SYSTEM',
-      updatedAt: new Date().toISOString(),
-    };
-  }
+  return FIAT_FEE_CONFIGS[currency];
 }
 
 /**
  * Set fee configuration for a fiat currency
+ * Note: Not implemented - fees are hardcoded
  */
 export async function setFiatFeeConfig(
   currency: 'EUR' | 'USD' | 'GBP',
@@ -87,45 +74,7 @@ export async function setFiatFeeConfig(
   minFeeAmount: number,
   adminDiscordId: string
 ): Promise<FiatFeeConfig> {
-  const config = await db.begin(async (sql) => {
-    const rows = await sql<FiatFeeConfig[]>`
-      UPDATE fiat_fee_config
-      SET
-        fee_percentage = ${feePercentage},
-        min_fee_amount = ${minFeeAmount},
-        updated_by_discord_id = ${adminDiscordId},
-        updated_at = NOW()
-      WHERE currency = ${currency}
-      RETURNING 
-        currency,
-        fee_percentage as "feePercentage",
-        min_fee_amount as "minFeeAmount",
-        updated_by_discord_id as "updatedByDiscordId",
-        updated_at as "updatedAt"
-    `;
-
-    if (rows.length === 0) throw new Error(`Currency ${currency} not found`);
-
-    await sql`
-      INSERT INTO audit_logs (actor_discord_id, action, entity_type, entity_id, metadata)
-      VALUES (
-        ${adminDiscordId},
-        'FEE_CONFIG_UPDATED',
-        'fiat_fee_config',
-        ${currency},
-        ${JSON.stringify({ currency, feePercentage, minFeeAmount })}::jsonb
-      )
-    `;
-
-    logger.info(
-      { currency, feePercentage, minFeeAmount, adminDiscordId },
-      'Fiat fee config updated'
-    );
-
-    return rows[0];
-  });
-
-  return config;
+  throw new Error('Cannot update fees - they are hardcoded in the service');
 }
 
 /**
