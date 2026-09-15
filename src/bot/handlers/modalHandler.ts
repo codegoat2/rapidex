@@ -60,6 +60,8 @@ interface PendingNoQuote {
   fiatAmount:   string | null;
   rate:          string | null;
   rateSource:    string | null;
+  feeAmount:     string | null;
+  feePercentage: string | null;
   fiatCurrency: FiatCurrency;
   fiatMethod:   FiatMethod;
   swapToAsset:  Asset | null;
@@ -296,7 +298,7 @@ async function handleTradeModal(
         },
         {
           name:   '<:Arrow:1547330759571017768> Fee',
-          value:  `\`${sym}${fiatFeeAmount} (${quote.feePercentage}%)\``,
+          value:  `\`${sym}${fiatFeeAmount} (${(parseFloat(quote.feePercentage) * 100).toFixed(2)}%)\``,
           inline: true,
         },
         {
@@ -354,6 +356,7 @@ async function handleTradeModal(
             { name: '<:DebtCard:1547332209684381756> Fiat Amount', value: `\`${sym}${rawAmount}\``,                       inline: true },
             { name: '<:lock:1547331951877165128> Collateral',    value: `\`${parseFloat(collateralQuote!.collateralAmount).toFixed(8)} ${asset}\``, inline: true },
             { name: '<:Arrow:1547330759571017768> Rate',          value: `\`1 ${asset} = ${parseFloat(collateralQuote!.rate).toFixed(2)} ${rawCurrency}\``, inline: true },
+            { name: '<:Arrow:1547330759571017768> Fee',            value: `\`${parseFloat(collateralQuote!.feeFiatAmount).toFixed(2)} ${rawCurrency} (${(parseFloat(collateralQuote!.feePercentage) * 100).toFixed(2)}%)\``, inline: true },
             { name: '<:Arrow:1547330759571017768> Send Via',    value: fiatMethodLabel(param1),                               inline: true },
             { name: '<:emojigg_Buy:1547330997002043404> Receive Via', value: fiatMethodLabel(param2),                        inline: true },
           ],
@@ -371,6 +374,8 @@ async function handleTradeModal(
     fiatAmount: tradeDirection === 'FIAT_TO_FIAT' ? rawAmount : null,
     rate: tradeDirection === 'FIAT_TO_FIAT' ? collateralQuote!.rate : null,
     rateSource: tradeDirection === 'FIAT_TO_FIAT' ? collateralQuote!.rateSource : null,
+    feeAmount: tradeDirection === 'FIAT_TO_FIAT' ? collateralQuote!.feeCollateralAmount : null,
+    feePercentage: tradeDirection === 'FIAT_TO_FIAT' ? collateralQuote!.feePercentage : null,
     fiatCurrency,
     fiatMethod,
     swapToAsset,
@@ -478,6 +483,8 @@ async function createTicketDirect(
     fiatAmount: string | null;
     rate: string | null;
     rateSource: string | null;
+    feeAmount: string | null;
+    feePercentage: string | null;
     fiatCurrency: FiatCurrency;
     fiatMethod: FiatMethod;
     swapToAsset: Asset | null;
@@ -497,6 +504,8 @@ async function createTicketDirect(
       fiatAmount:      params.fiatAmount,
       rate:            params.rate,
       rateSource:      params.rateSource,
+      feeAmount:       params.feeAmount,
+      feePercentage:   params.feePercentage,
       fiatCurrency:    params.fiatCurrency,
       fiatMethod:      params.fiatMethod,
       direction:       params.direction,

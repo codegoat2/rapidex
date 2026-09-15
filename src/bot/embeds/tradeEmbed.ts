@@ -98,7 +98,7 @@ function feeInFiat(
 ): string | null {
   if (!feeAmount || !rate) return null;
   const fiatFee = parseFloat(feeAmount) * parseFloat(rate);
-  const pct = feePercentage ? ` (${feePercentage}%)` : '';
+  const pct = feePercentage ? ` (${(parseFloat(feePercentage) * 100).toFixed(2)}%)` : '';
   const SYMBOLS: Record<string, string> = { EUR: '€', USD: '$', GBP: '£' };
   const sym = SYMBOLS[currency] ?? currency;
   return `${sym}${fiatFee.toFixed(2)}${pct}`;
