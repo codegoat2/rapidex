@@ -10,6 +10,9 @@ import type { Asset, FiatCurrency, FiatMethod, TradeDirection } from '../types';
 const QUOTE_TTL_SECONDS = 300;
 const RATE_FRESH_MS     = 15_000;        // serve without refetch while fresh
 const RATE_STALE_MS     = 5 * 60_000;   // serve stale value during CoinGecko outages
+const REQUEST_DELAY_MS  = 500;           // throttle requests to avoid 429 rate limit
+const MAX_RETRIES       = 3;
+const RETRY_DELAY_MS    = 1000;          // exponential backoff starting delay
 
 const COINGECKO_IDS: Record<Asset, string> = {
   BTC:        'bitcoin',
@@ -27,6 +30,7 @@ interface RateCacheEntry {
 
 const rateCache    = new Map<string, RateCacheEntry>();
 const revalidating = new Set<string>();
+let lastRequestTime = 0; // Track last request time for throttling
 
 export interface TradeQuote {
   id:            string;
@@ -51,6 +55,9 @@ export interface FiatCollateralQuote {
   collateralAmount: string;
   rate:          string;
   rateSource:    string;
+  feePercentage:        string;
+  feeFiatAmount:       string;
+  feeCollateralAmount:  string;
 }
 
 /** Convert a fiat amount into the selected crypto collateral at the live rate. */
@@ -60,6 +67,13 @@ export async function createFiatCollateralQuote(params: {
   fiatCurrency: FiatCurrency;
 }): Promise<FiatCollateralQuote> {
   const rate = await getRate(params.asset, params.fiatCurrency);
+  const [feeConfig] = await db<{ fee_percentage: string; min_fee_amount: string }[]>`
+    SELECT fee_percentage, min_fee_amount FROM fiat_fee_config WHERE currency = ${params.fiatCurrency}
+  `;
+  const feePercentage = feeConfig?.fee_percentage ?? '0';
+  const feeFiatAmount = feeConfig
+    ? maxDecimal(multiplyDecimal(params.fiatAmount, feePercentage, 4), feeConfig.min_fee_amount)
+    : '0';
   return {
     asset:            params.asset,
     fiatCurrency:     params.fiatCurrency,
@@ -67,6 +81,9 @@ export async function createFiatCollateralQuote(params: {
     collateralAmount: divideDecimal(params.fiatAmount, rate),
     rate,
     rateSource:       'COINGECKO',
+    feePercentage,
+    feeFiatAmount,
+    feeCollateralAmount: divideDecimal(feeFiatAmount, rate),
   };
 }
 
@@ -244,20 +261,48 @@ async function getRate(asset: Asset, currency: FiatCurrency): Promise<string> {
 }
 
 async function fetchFromCoinGecko(asset: Asset, currency: FiatCurrency): Promise<string | null> {
-  try {
-    const response = await axios.get<Record<string, Record<string, number>>>(
-      'https://api.coingecko.com/api/v3/simple/price',
-      {
-        params:  { ids: COINGECKO_IDS[asset], vs_currencies: currency.toLowerCase() },
-        timeout: 8000,
-      },
-    );
-
-    const value = response.data[COINGECKO_IDS[asset]]?.[currency.toLowerCase()];
-    if (!Number.isFinite(value) || (value ?? 0) <= 0) return null;
-    return (value as number).toFixed(18);
-  } catch (err) {
-    logger.warn({ err, asset, currency }, 'CoinGecko fetch failed');
-    return null;
+  // Throttle requests to avoid rate limiting
+  const now = Date.now();
+  const timeSinceLastRequest = now - lastRequestTime;
+  if (timeSinceLastRequest < REQUEST_DELAY_MS) {
+    await new Promise((resolve) => setTimeout(resolve, REQUEST_DELAY_MS - timeSinceLastRequest));
   }
+  lastRequestTime = Date.now();
+
+  // Retry logic with exponential backoff
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const response = await axios.get<Record<string, Record<string, number>>>(
+        'https://api.coingecko.com/api/v3/simple/price',
+        {
+          params:  { ids: COINGECKO_IDS[asset], vs_currencies: currency.toLowerCase() },
+          timeout: 8000,
+        },
+      );
+
+      const value = response.data[COINGECKO_IDS[asset]]?.[currency.toLowerCase()];
+      if (!Number.isFinite(value) || (value ?? 0) <= 0) return null;
+      return (value as number).toFixed(18);
+    } catch (err) {
+      lastError = err as Error;
+      const status = (err as any)?.response?.status;
+      
+      // 429 = rate limited, 503 = service unavailable — retry with backoff
+      if (status === 429 || status === 503) {
+        const delayMs = RETRY_DELAY_MS * Math.pow(2, attempt);
+        logger.warn(
+          { asset, currency, attempt, status, delayMs },
+          'CoinGecko rate limited or unavailable — retrying'
+        );
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      } else {
+        // Other errors — don't retry
+        break;
+      }
+    }
+  }
+
+  logger.warn({ err: lastError, asset, currency }, 'CoinGecko fetch failed after retries');
+  return null;
 }
