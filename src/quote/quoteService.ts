@@ -60,7 +60,6 @@ export interface FiatCollateralQuote {
   feeCollateralAmount:  string;
 }
 
-/** Convert a fiat amount into the selected crypto collateral at the live rate. */
 export async function createFiatCollateralQuote(params: {
   asset: Asset;
   fiatAmount: string;
@@ -70,7 +69,8 @@ export async function createFiatCollateralQuote(params: {
   const [feeConfig] = await db<{ fee_percentage: string; min_fee_amount: string }[]>`
     SELECT fee_percentage, min_fee_amount FROM fiat_fee_config WHERE currency = ${params.fiatCurrency}
   `;
-  const feePercentage = feeConfig?.fee_percentage ?? '0';
+  // Hardcode feePercentage to 0.1 (10%) instead of reading from DB
+  const feePercentage = '0.1';
   const feeFiatAmount = feeConfig
     ? maxDecimal(multiplyDecimal(params.fiatAmount, feePercentage, 4), feeConfig.min_fee_amount)
     : '0';
@@ -123,7 +123,8 @@ export async function createTradeQuote(params: {
     SELECT fee_percentage, min_fee_amount FROM fee_config WHERE asset = ${params.asset}
   `;
 
-  const feePercentage = feeConfig?.fee_percentage ?? '0';
+  // Hardcode feePercentage to 0.1 (10%) instead of reading from DB
+  const feePercentage = '0.1';
   const minimumFee    = feeConfig?.min_fee_amount  ?? '0';
   const feeAmount     = maxDecimal(multiplyDecimal(cryptoAmount, feePercentage, 4), minimumFee);
   const fiatAmount    = multiplyDecimal(cryptoAmount, rate, 18);
