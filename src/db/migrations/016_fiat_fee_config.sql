@@ -10,9 +10,9 @@ CREATE TABLE IF NOT EXISTS fiat_fee_config (
   updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Set default fees: 0.5% for all currencies, no minimum
+-- Set default fees: 0% (no fee) for all currencies
 INSERT INTO fiat_fee_config (currency, fee_percentage, min_fee_amount)
-VALUES ('EUR', 0.5, 0), ('USD', 0.5, 0), ('GBP', 0.5, 0)
+VALUES ('EUR', 0, 0), ('USD', 0, 0), ('GBP', 0, 0)
 ON CONFLICT (currency) DO NOTHING;
 
 INSERT INTO schema_migrations (version) VALUES ('016_fiat_fee_config')
