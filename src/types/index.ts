@@ -148,6 +148,16 @@ export interface DbTrade {
   claimed_at: Date | null;
   completed_at: Date | null;
   expires_at: Date | null;
+  /** For FIAT_TO_FIAT trades: crypto asset held as collateral */
+  collateral_asset: Asset | null;
+  /** For FIAT_TO_FIAT trades: amount of collateral_asset held */
+  collateral_amount: string | null;
+  /** When the collateral was locked */
+  collateral_locked_at: Date | null;
+  /** When the collateral was released */
+  collateral_released_at: Date | null;
+  /** Transaction ID when collateral was released to exchanger */
+  collateral_tx_id: string | null;
   created_at: Date;
   updated_at: Date;
 }
