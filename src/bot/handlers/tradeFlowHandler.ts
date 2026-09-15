@@ -124,21 +124,14 @@ export async function claimTrade(
   exchanger: import('../../types').DbExchanger,
 ): Promise<void> {
   try {
-    // Fiat-to-fiat trades settle outside the crypto ledger. The BTC asset
-    // value on these rows is only a schema-compatible placeholder.
+    // Fiat-to-fiat trades require collateral locking
+    // Non-fiat-to-fiat trades use the traditional escrow system
     const fiatPendingTrade = trade.direction === 'FIAT_TO_FIAT'
-      ? await transitionTrade({
-          tradeId:        trade.id,
-          to:             'CLAIMED',
-          actorDiscordId: interaction.user.id,
-          note:           `Claimed by exchanger ${interaction.user.username}`,
-          updates:        { exchangerId: exchanger.id, claimedAt: new Date() },
-        }).then((claimed) => transitionTrade({
-          tradeId:        claimed.id,
-          to:             'FIAT_PENDING',
-          actorDiscordId: interaction.user.id,
-          note:           'Awaiting fiat-to-fiat payment',
-        }))
+      ? await handleFiatToFiatClaim({
+          interaction,
+          trade,
+          exchanger,
+        })
       : await claimTradeWithEscrow({
           exchangerId:    exchanger.id,
           tradeId:        trade.id,
@@ -166,7 +159,7 @@ export async function claimTrade(
 
     await interaction.editReply(
       trade.direction === 'FIAT_TO_FIAT'
-        ? `✅ You've claimed trade \`${trade.id}\`. This fiat-to-fiat trade will settle manually.`
+        ? `✅ You've claimed trade \`${trade.id}\`. Collateral locked: **${fiatPendingTrade.collateral_amount} ${fiatPendingTrade.collateral_asset}**.`
         : `✅ You've claimed trade \`${trade.id}\`. Escrow locked: **${trade.amount} ${trade.asset}**`,
     );
     void notifyAsync('notifyTradeClaimed', trade.id, interaction.user.id);
@@ -184,6 +177,99 @@ export async function claimTrade(
 // ---------------------------------------------------------------------------
 // FIAT_PENDING → FIAT_SENT
 // ---------------------------------------------------------------------------
+
+async function handleFiatToFiatClaim(params: {
+  interaction: ButtonInteraction;
+  trade: import('../../types').DbTrade;
+  exchanger: import('../../types').DbExchanger;
+}): Promise<import('../../types').DbTrade> {
+  const { interaction, trade, exchanger } = params;
+  
+  // Step 1: Transition to CLAIMED
+  const claimed = await transitionTrade({
+    tradeId:        trade.id,
+    to:             'CLAIMED',
+    actorDiscordId: interaction.user.id,
+    note:           `Claimed by exchanger ${interaction.user.username}`,
+    updates:        { exchangerId: exchanger.id, claimedAt: new Date() },
+  });
+
+  // Step 2: Determine which collateral asset to use
+  // Priority: check exchanger's available balances in order of preference
+  // BTC > ETH > USDT > LTC > SOL
+  const { getAllBalances } = await import('../../ledger/ledgerService');
+  const balances = await getAllBalances(exchanger.id);
+  
+  const priorityAssets = ['BTC', 'ETH', 'USDT_ERC20', 'LTC', 'USDC_ERC20', 'BNB'];
+  let selectedAsset: string | null = null;
+  
+  for (const asset of priorityAssets) {
+    const balance = balances[asset];
+    if (balance && balance.available && parseFloat(balance.available) > 0) {
+      selectedAsset = asset;
+      break;
+    }
+  }
+
+  if (!selectedAsset) {
+    throw new Error(
+      `❌ Exchanger has no available collateral to lock. Required: any of ${priorityAssets.join(', ')}`
+    );
+  }
+
+  // Step 3: Calculate collateral amount using current exchange rate
+  // Convert fiat amount to crypto amount (e.g., EUR 1000 → 0.02 BTC at current rate)
+  const { createFiatCollateralQuote } = await import('../../quote/quoteService');
+  const fiatAmount = trade.fiat_amount || trade.amount; // Use fiat_amount if available
+  
+  let collateralQuote;
+  try {
+    collateralQuote = await createFiatCollateralQuote({
+      asset: selectedAsset as import('../../types').Asset,
+      fiatAmount: String(fiatAmount),
+      fiatCurrency: trade.fiat_currency as import('../../types').FiatCurrency,
+    });
+  } catch (err) {
+    throw new Error(
+      `❌ Unable to calculate collateral amount: ${String(err)}`
+    );
+  }
+
+  const collateralAmount = collateralQuote.collateralAmount;
+
+  // Step 4: Check if exchanger has enough available collateral
+  const selectedBalance = balances[selectedAsset];
+  if (!selectedBalance || parseFloat(selectedBalance.available) < parseFloat(collateralAmount)) {
+    throw new InsufficientBalanceError(
+      `Insufficient ${selectedAsset} collateral: need ${collateralAmount}, have ${selectedBalance?.available ?? '0'}`
+    );
+  }
+
+  // Step 5: Lock the collateral
+  const { lockCollateralForFiatTrade } = await import('../../ledger/ledgerService');
+  
+  // Generate a collateral lock idempotency key
+  const collateralLockKey = `collateral:${trade.id}:${selectedAsset}`;
+  
+  const pending = await lockCollateralForFiatTrade({
+    exchangerId: exchanger.id,
+    tradeId: trade.id,
+    collateralAsset: selectedAsset as import('../../types').Asset,
+    collateralAmount: collateralAmount,
+    idempotencyKey: collateralLockKey,
+    actorDiscordId: interaction.user.id,
+  });
+
+  // Step 6: Transition to FIAT_PENDING
+  const fiatPending = await transitionTrade({
+    tradeId:        pending.id,
+    to:             'FIAT_PENDING',
+    actorDiscordId: interaction.user.id,
+    note:           `Awaiting fiat-to-fiat payment. Collateral locked: ${collateralAmount} ${selectedAsset}`,
+  });
+
+  return fiatPending;
+}
 
 export async function handleFiatSent(
   interaction: ButtonInteraction,
@@ -218,11 +304,16 @@ export async function handleFiatSent(
       .setColor(COLORS.ESCROW)
       .setTitle('<:DebtCard:1547332209684381756> Payment Sent — Awaiting Release')
       .setDescription(
-        `<@${interaction.user.id}> has confirmed payment was sent.\n\n` +
-        `**Exchanger** — verify receipt then choose how to release below.\n\n` +
-        `> <:lock:1547331951877165128> **Internal Wallet** — release directly from the bot's hot wallet\n` +
-        `> <:Arrow:1547330759571017768> **External / Manual** — you'll send manually; bot will confirm with the buyer\n` +
-        `> <:emojigg_no:1547332976201830441> **Dispute** — open a dispute for admin review`,
+        trade.direction === 'FIAT_TO_FIAT'
+          ? `<@${interaction.user.id}> has confirmed fiat payment was sent.\n\n` +
+            `**Exchanger** — verify receipt and confirm below.\n\n` +
+            `> <:Arrow:1547330759571017768> **Confirm Sent** — you've sent the fiat, buyer confirms receipt\n` +
+            `> <:emojigg_no:1547332976201830441> **Dispute** — open a dispute for admin review`
+          : `<@${interaction.user.id}> has confirmed payment was sent.\n\n` +
+            `**Exchanger** — verify receipt then choose how to release below.\n\n` +
+            `> <:lock:1547331951877165128> **Internal Wallet** — release directly from the bot's hot wallet\n` +
+            `> <:Arrow:1547330759571017768> **External / Manual** — you'll send manually; bot will confirm with the buyer\n` +
+            `> <:emojigg_no:1547332976201830441> **Dispute** — open a dispute for admin review`
       )
       .addFields({ name: 'Trade ID', value: `\`${trade.id}\``, inline: true })
       .setTimestamp();
@@ -231,7 +322,11 @@ export async function handleFiatSent(
     await channel.send({ embeds: [embed], components: [releaseRow] });
   }
 
-  await interaction.editReply('✅ Payment confirmed. The exchanger will verify and release your crypto.');
+  const confirmMsg = trade.direction === 'FIAT_TO_FIAT'
+    ? '✅ Fiat payment confirmed. The exchanger will verify and mark as received.'
+    : '✅ Payment confirmed. The exchanger will verify and release your crypto.';
+
+  await interaction.editReply(confirmMsg);
 
   void notifyAsync('notifyFiatSent', trade.id, interaction.user.id);
 
@@ -422,13 +517,15 @@ export async function handleForceRelease(
   }
 
   if (trade.direction === 'FIAT_TO_FIAT') {
-    if (trade.exchanger_id) {
-      await releaseEscrow({
+    if (trade.exchanger_id && trade.collateral_asset && trade.collateral_amount) {
+      const { releaseCollateralToExchanger } = await import('../../ledger/ledgerService');
+      await releaseCollateralToExchanger({
         exchangerId: trade.exchanger_id,
         tradeId: trade.id,
-        asset: trade.asset,
-        amount: trade.amount,
-        idempotencyKey: escrowReleaseKey(trade.id, 'COMPLETE'),
+        collateralAsset: trade.collateral_asset as import('../../types').Asset,
+        collateralAmount: trade.collateral_amount,
+        idempotencyKey: `collateral_release:${trade.id}:FORCE`,
+        actorDiscordId: interaction.user.id,
       });
     }
     await transitionTrade({
@@ -438,6 +535,7 @@ export async function handleForceRelease(
       note: `Force-released by admin ${interaction.user.tag}`,
       updates: { completedAt: new Date() },
     });
+    await settleTradeProfit(trade.id);
     await interaction.editReply('✅ Fiat-to-fiat trade force-completed by admin.');
     await db_auditLog(interaction.user.id, trade.user_discord_id, 'FORCE_RELEASE', 'trade', trade.id);
     return;
@@ -506,8 +604,19 @@ export async function handleForceCancel(
     return;
   }
 
-  // Release escrow back to exchanger
-  if (trade.exchanger_id) {
+  // For fiat-to-fiat: release collateral back to exchanger
+  if (trade.direction === 'FIAT_TO_FIAT' && trade.exchanger_id && trade.collateral_asset && trade.collateral_amount) {
+    const { releaseCollateralToExchanger } = await import('../../ledger/ledgerService');
+    await releaseCollateralToExchanger({
+      exchangerId: trade.exchanger_id,
+      tradeId: trade.id,
+      collateralAsset: trade.collateral_asset as import('../../types').Asset,
+      collateralAmount: trade.collateral_amount,
+      idempotencyKey: `collateral_release:${trade.id}:CANCEL`,
+      actorDiscordId: interaction.user.id,
+    });
+  } else if (trade.exchanger_id) {
+    // For crypto trades: release escrow back to exchanger
     await releaseEscrow({
       exchangerId:    trade.exchanger_id,
       tradeId:        trade.id,
@@ -791,6 +900,9 @@ export async function handleSubmitWallet(
 /**
  * External / manual release — bot DMs buyer asking if they received payment.
  * Exchanger has already sent funds manually outside the bot.
+ * 
+ * For fiat-to-fiat: exchanger confirms fiat was sent, buyer confirms receipt
+ * For crypto trades: exchanger confirms they sent the crypto manually
  */
 export async function handleReleaseExternal(
   interaction: ButtonInteraction,
@@ -830,8 +942,12 @@ export async function handleReleaseExternal(
     });
   }
 
-  await interaction.editReply('✅ Confirmation request sent to the buyer. Waiting for their response.');
-  logger.info({ tradeId: trade.id, exchangerId: exchanger.id }, 'External release initiated');
+  const confirmMsg = trade.direction === 'FIAT_TO_FIAT'
+    ? '✅ Buyer has been asked to confirm they received the fiat payment.'
+    : '✅ Confirmation request sent to the buyer. Waiting for their response.';
+  
+  await interaction.editReply(confirmMsg);
+  logger.info({ tradeId: trade.id, exchangerId: exchanger.id, direction: trade.direction }, 'External release initiated');
 }
 
 /**
@@ -855,15 +971,30 @@ export async function handleExternalPaymentReceived(
     return;
   }
 
-  // External settlement returns the locked collateral after the buyer confirms receipt.
-  if (trade.exchanger_id) {
-    await releaseEscrow({
-      exchangerId:    trade.exchanger_id,
-      tradeId:        trade.id,
-      asset:          trade.asset,
-      amount:         trade.amount,
-      idempotencyKey: escrowReleaseKey(trade.id, 'COMPLETE'),
-    });
+  // For fiat-to-fiat trades: release the collateral (crypto held by bot)
+  if (trade.direction === 'FIAT_TO_FIAT' && trade.collateral_asset && trade.collateral_amount) {
+    if (trade.exchanger_id) {
+      const { releaseCollateralToExchanger } = await import('../../ledger/ledgerService');
+      await releaseCollateralToExchanger({
+        exchangerId: trade.exchanger_id,
+        tradeId: trade.id,
+        collateralAsset: trade.collateral_asset as import('../../types').Asset,
+        collateralAmount: trade.collateral_amount,
+        idempotencyKey: `collateral_release:${trade.id}:COMPLETE`,
+        actorDiscordId: interaction.user.id,
+      });
+    }
+  } else {
+    // For crypto trades: release the escrow as before
+    if (trade.exchanger_id) {
+      await releaseEscrow({
+        exchangerId:    trade.exchanger_id,
+        tradeId:        trade.id,
+        asset:          trade.asset,
+        amount:         trade.amount,
+        idempotencyKey: escrowReleaseKey(trade.id, 'COMPLETE'),
+      });
+    }
   }
 
   await transitionTrade({

@@ -304,6 +304,7 @@ export function buildFiatInstructionsEmbed(trade: DbTrade, exchangerUsername: st
       `Once sent, click **${E.CHECK} I've Sent Payment** below.\n\n` +
       `${E.NO} **Only click after you have sent the funds.**`;
   } else if (isF2F) {
+    // Fiat-to-fiat: BUYER should only see fiat, NOT collateral details
     instructions =
       `Send ${primaryAmount} via **${fiatMethodLabel(trade.fiat_method)}** to the exchanger.\n\n` +
       `The exchanger will share their payment details in this channel shortly.\n\n` +
@@ -348,14 +349,15 @@ export function buildFiatInstructionsEmbed(trade: DbTrade, exchangerUsername: st
       { name: `${E.ARROW} You Send`,    value: `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``,             inline: true },
       { name: `${E.BUY} You Receive`,   value: trade.swap_to_asset ? assetLabel(trade.swap_to_asset) : '—',             inline: true },
     );
-  } else {
-    // F2F
+  } else if (isF2F) {
+    // Fiat-to-fiat: BUYER ONLY sees fiat amount, NOT collateral
+    // Collateral is a security mechanism internal to the bot
     embed.addFields(
       { name: `${E.DEBTCARD} Fiat Amount`, value: `\`${fiatDisplay(trade.fiat_amount ?? trade.amount, trade.fiat_currency)}\``, inline: true },
-      { name: `${E.LOCK} Collateral`,      value: `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``,            inline: true },
       { name: `${E.ARROW} Send Via`,    value: fiatMethodLabel(trade.fiat_method),                                       inline: true },
       { name: `${E.BUY} Receive Via`,   value: trade.fiat_to_method ? fiatMethodLabel(trade.fiat_to_method) : '—',      inline: true },
     );
+    // NOTE: collateral fields (${E.LOCK} Collateral, asset) intentionally omitted from buyer view
   }
 
   embed
@@ -441,12 +443,17 @@ export function buildExternalPaymentCheckEmbed(
   trade: DbTrade,
   exchangerUsername: string,
 ): { embed: EmbedBuilder; row: ActionRowBuilder<ButtonBuilder> } {
-  // Primary amount: fiat when available
-  const amountStr = trade.direction === 'FIAT_TO_FIAT'
-    ? `\`${fiatDisplay(trade.fiat_amount ?? trade.amount, trade.fiat_currency)}\` (collateral: \`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\`)`
-    : trade.fiat_amount
-    ? `\`${fiatDisplay(trade.fiat_amount, trade.fiat_currency)}\` (≈ \`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\`)`
-    : `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``;
+  // For fiat-to-fiat: show fiat amount (no collateral to buyer)
+  // For other trades: show fiat if available, else crypto + collateral info
+  let amountStr: string;
+  
+  if (trade.direction === 'FIAT_TO_FIAT') {
+    amountStr = `\`${fiatDisplay(trade.fiat_amount ?? trade.amount, trade.fiat_currency)}\``;
+  } else {
+    amountStr = trade.fiat_amount
+      ? `\`${fiatDisplay(trade.fiat_amount, trade.fiat_currency)}\` (≈ \`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\`)`
+      : `\`${parseFloat(trade.amount).toFixed(8)} ${trade.asset}\``;
+  }
 
   const embed = new EmbedBuilder()
     .setColor(COLORS.ESCROW)

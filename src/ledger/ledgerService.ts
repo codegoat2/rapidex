@@ -812,6 +812,169 @@ export async function getLedgerHistory(
 }
 
 // ---------------------------------------------------------------------------
+// Fiat-to-Fiat Collateral Locking
+// ---------------------------------------------------------------------------
+
+/**
+ * Lock crypto collateral for a fiat-to-fiat trade.
+ * 
+ * Fiat-to-fiat trades are handled manually between buyer and exchanger.
+ * The bot only holds crypto as collateral/security. This function:
+ * 1. Locks the specified collateral asset in escrow (prevents withdrawal)
+ * 2. Records the collateral details on the trade record
+ * 3. Returns the updated trade
+ * 
+ * The collateral is held until the trade completes or is cancelled.
+ */
+export async function lockCollateralForFiatTrade(params: {
+  exchangerId: string;
+  tradeId: string;
+  collateralAsset: Asset;
+  collateralAmount: string;
+  idempotencyKey: string;
+  actorDiscordId: string;
+}): Promise<DbTrade> {
+  return db.begin(async (sql) => {
+    // Fetch and lock the trade row
+    const [trade] = await sql<DbTrade[]>`
+      SELECT * FROM trades WHERE id = ${params.tradeId} FOR UPDATE
+    `;
+    if (!trade) throw new Error(`Trade ${params.tradeId} not found`);
+    if (trade.status !== 'CLAIMED') {
+      throw new Error(`Trade ${params.tradeId} must be CLAIMED to lock collateral (current: ${trade.status})`);
+    }
+
+    // Check if this collateral lock already happened (idempotency)
+    const existing = await sql<{ id: string }[]>`
+      SELECT id FROM ledger_entries WHERE idempotency_key = ${params.idempotencyKey}
+    `;
+
+    if (existing.length === 0) {
+      // Check if exchanger has sufficient collateral available
+      const { available, escrow } = await readBalanceLocked(
+        sql as unknown as postgres.Sql,
+        params.exchangerId,
+        params.collateralAsset,
+      );
+
+      if (!bigGte(available, params.collateralAmount)) {
+        throw new InsufficientBalanceError(
+          `Insufficient collateral: need ${params.collateralAmount} ${params.collateralAsset}, have ${available}`,
+        );
+      }
+
+      // Create ledger entry to lock the collateral
+      await insertEntry(sql as unknown as postgres.Sql, {
+        exchangerId: params.exchangerId,
+        tradeId: params.tradeId,
+        type: 'ESCROW_LOCK',
+        asset: params.collateralAsset,
+        amount: params.collateralAmount,
+        balanceBefore: available,
+        balanceAfter: sub(available, params.collateralAmount),
+        escrowBefore: escrow,
+        escrowAfter: add(escrow, params.collateralAmount),
+        reference: `Collateral lock for fiat-to-fiat trade ${params.tradeId}`,
+        idempotencyKey: params.idempotencyKey,
+      });
+    }
+
+    // Update trade record with collateral details
+    const [updated] = await sql<DbTrade[]>`
+      UPDATE trades
+      SET collateral_asset = ${params.collateralAsset},
+          collateral_amount = ${params.collateralAmount},
+          collateral_locked_at = NOW()
+      WHERE id = ${params.tradeId}
+      RETURNING *
+    `;
+
+    // Log the state transition
+    await sql`
+      INSERT INTO trade_logs (trade_id, from_status, to_status, actor_discord_id, note)
+      VALUES (
+        ${params.tradeId},
+        'CLAIMED',
+        'FIAT_PENDING',
+        ${params.actorDiscordId},
+        ${'Collateral locked: ' + params.collateralAmount + ' ' + params.collateralAsset}
+      )
+    `;
+
+    return updated;
+  });
+}
+
+/**
+ * Release collateral when a fiat-to-fiat trade completes.
+ * This sends the held crypto to the exchanger's wallet.
+ */
+export async function releaseCollateralToExchanger(params: {
+  exchangerId: string;
+  tradeId: string;
+  collateralAsset: Asset;
+  collateralAmount: string;
+  idempotencyKey: string;
+  actorDiscordId: string;
+}): Promise<DbTrade> {
+  return db.begin(async (sql) => {
+    // Fetch and lock the trade row
+    const [trade] = await sql<DbTrade[]>`
+      SELECT * FROM trades WHERE id = ${params.tradeId} FOR UPDATE
+    `;
+    if (!trade) throw new Error(`Trade ${params.tradeId} not found`);
+    if (!trade.collateral_asset) {
+      throw new Error(`Trade ${params.tradeId} has no collateral to release`);
+    }
+
+    // Check idempotency
+    const existing = await sql<{ id: string }[]>`
+      SELECT id FROM ledger_entries WHERE idempotency_key = ${params.idempotencyKey}
+    `;
+
+    if (existing.length === 0) {
+      // Release the escrow (moves back to available, then withdrawn)
+      const { available, escrow } = await readBalanceLocked(
+        sql as unknown as postgres.Sql,
+        params.exchangerId,
+        params.collateralAsset,
+      );
+
+      if (!bigGte(escrow, params.collateralAmount)) {
+        throw new Error(
+          `Insufficient escrow to release: need ${params.collateralAmount}, have ${escrow}`,
+        );
+      }
+
+      // ESCROW_RELEASE: escrow ↓, available ↑
+      await insertEntry(sql as unknown as postgres.Sql, {
+        exchangerId: params.exchangerId,
+        tradeId: params.tradeId,
+        type: 'ESCROW_RELEASE',
+        asset: params.collateralAsset,
+        amount: params.collateralAmount,
+        balanceBefore: available,
+        balanceAfter: add(available, params.collateralAmount),
+        escrowBefore: escrow,
+        escrowAfter: sub(escrow, params.collateralAmount),
+        reference: `Collateral release for fiat-to-fiat trade ${params.tradeId}`,
+        idempotencyKey: params.idempotencyKey,
+      });
+    }
+
+    // Mark collateral as released on trade record
+    const [updated] = await sql<DbTrade[]>`
+      UPDATE trades
+      SET collateral_released_at = NOW()
+      WHERE id = ${params.tradeId}
+      RETURNING *
+    `;
+
+    return updated;
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
 
