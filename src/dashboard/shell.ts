@@ -212,6 +212,7 @@ hr{border:none;border-top:1px solid var(--border);margin:20px 0}
     <div class="nav-section">Finance</div>
     <button class="nav-item" data-page="ledger"><span class="icon">-</span>Ledger</button>
     <button class="nav-item" data-page="fees"><span class="icon">-</span>Fee Config</button>
+    <button class="nav-item" data-page="admin-profit"><span class="icon">-</span>Admin Profit</button>
     <button class="nav-item" data-page="hot-wallets"><span class="icon">-</span>Hot Wallets</button>
 
     <div class="nav-section">Monitoring</div>
@@ -755,9 +756,9 @@ async function loadLedger(p=0) {
 async function loadFees() {
   topbar.textContent='Fee Config'; actions.innerHTML='';
   loading();
-  const fees = await api('/fees');
+  const [fees, fiatFees] = await Promise.all([api('/fees'), api('/fiat-fees')]);
   page.innerHTML=\`
-  <div class="section-header"><h2>Fee Configuration</h2></div>
+  <div class="section-header"><div><h2>Fee Configuration</h2><span style="color:var(--muted);font-size:12px">Percentage supports 0 to 10,000%; minimum fee is denominated in the asset.</span></div></div>
   <div class="card">
     <div class="card-title">Per-asset fee settings</div>
     <div class="table-wrap">
@@ -776,7 +777,44 @@ async function loadFees() {
       </table>
     </div>
   </div>
+  <div class="card" style="margin-top:20px"><div class="card-title">Fiat fee settings</div><div class="table-wrap"><table>
+    <thead><tr><th>Currency</th><th>Fee %</th><th>Minimum Fee</th><th>Updated</th><th></th></tr></thead><tbody>
+    \${fiatFees.map(f=>\`<tr><td><strong>\${f.currency}</strong></td><td><input id="fiat-fee-pct-\${f.currency}" class="mono" value="\${f.fee_percentage}" style="width:80px;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text)"></td><td><input id="fiat-fee-min-\${f.currency}" class="mono" value="\${f.min_fee_amount}" style="width:120px;padding:4px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text)"></td><td>\${ts(f.updated_at)}</td><td><button class="btn btn-primary btn-sm" onclick="saveFiatFee('\${f.currency}')">Save</button></td></tr>\`).join('')}
+    </tbody></table></div></div>
   \`;
+}
+
+async function loadAdminProfit() {
+  topbar.textContent='Admin Profit'; actions.innerHTML='<button class="btn btn-ghost" onclick="loadAdminProfit()">↻ Refresh</button>';
+  loading();
+  const d = await api('/admin-profit');
+  const balances = Object.entries(d.balances).filter(([, amount]) => parseFloat(amount) > 0);
+  page.innerHTML=\`
+  <div class="section-header"><div><h2>Admin Profit Balance</h2><span style="color:var(--muted);font-size:12px">50% of realized trade fees</span></div></div>
+  <div class="metric-grid">
+    \${balances.length ? balances.map(([asset, amount])=>\`<div class="stat-card green"><div class="stat-label">\${asset}</div><div class="stat-value mono">\${num(amount)}</div><div class="stat-sub">available to withdraw</div></div>\`).join('') : empty('No admin profit recorded yet')}
+  </div>
+  <div class="card" style="margin-top:20px"><div class="card-title">Withdraw admin profit</div>
+    <div class="form-row">
+      <div class="form-group"><label>Asset</label><select id="admin-wd-asset">\${Object.keys(d.balances).map(a=>\`<option>\${a}</option>\`).join('')}</select></div>
+      <div class="form-group"><label>Amount</label><input id="admin-wd-amount" placeholder="0.00000000"></div>
+      <div class="form-group"><label>Destination wallet</label><input id="admin-wd-destination" placeholder="Wallet address"></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-primary" onclick="withdrawAdminProfit()">Request Withdrawal</button></div>
+  </div>
+  <div class="card" style="margin-top:20px"><div class="card-title">Withdrawal history</div><div class="table-wrap"><table>
+    <thead><tr><th>Created</th><th>Asset</th><th>Amount</th><th>Destination</th><th>Status</th><th>TX ID</th></tr></thead><tbody>
+    \${d.withdrawals.map(w=>\`<tr><td>\${ts(w.created_at)}</td><td>\${esc(w.asset)}</td><td class="mono">\${num(w.amount)}</td><td class="mono truncate">\${esc(w.destination)}</td><td>\${badge(w.status)}</td><td class="mono">\${esc(w.tx_id||'—')}</td></tr>\`).join('') || '<tr><td colspan="6">'+empty('No withdrawals')+'</td></tr>'}
+    </tbody></table></div></div>\`;
+}
+
+async function withdrawAdminProfit() {
+  try {
+    await api('/admin-profit/withdraw',{method:'POST',body:JSON.stringify({
+      asset:$('admin-wd-asset').value, amount:$('admin-wd-amount').value, destination:$('admin-wd-destination').value
+    })});
+    toast('Admin withdrawal queued','success'); loadAdminProfit();
+  } catch(e){ toast(e.message,'error'); }
 }
 
 async function saveFee(asset) {
@@ -785,6 +823,15 @@ async function saveFee(asset) {
       asset, fee_percentage:$('fee-pct-'+asset).value, min_fee_amount:$('fee-min-'+asset).value
     })});
     toast('Fee updated for '+asset,'success');
+  } catch(e){ toast(e.message,'error'); }
+}
+
+async function saveFiatFee(currency) {
+  try {
+    await api('/fiat-fees',{method:'POST',body:JSON.stringify({
+      currency, fee_percentage:$('fiat-fee-pct-'+currency).value, min_fee_amount:$('fiat-fee-min-'+currency).value
+    })});
+    toast('Fiat fee updated for '+currency,'success');
   } catch(e){ toast(e.message,'error'); }
 }
 
@@ -1048,6 +1095,7 @@ const pages = {
   exchangers:  loadExchangers,
   ledger:      loadLedger,
   fees:        loadFees,
+  'admin-profit': loadAdminProfit,
   'hot-wallets': loadHotWallets,
   webhooks:    loadWebhooks,
   withdrawals: loadWithdrawals,

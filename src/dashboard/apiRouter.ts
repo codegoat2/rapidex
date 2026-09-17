@@ -21,6 +21,7 @@ import {
   InsufficientBalanceError,
 } from '../ledger/ledgerService';
 import { manualAdjustmentKey } from '../security/idempotency';
+import { getAdminProfitBalances, listAdminWithdrawals, requestAdminWithdrawal } from '../ledger/adminProfitService';
 import { provisionAddresses } from '../wallet/addressService';
 import { logger } from '../utils/logger';
 import type { Asset } from '../types';
@@ -268,6 +269,12 @@ router.post('/fees', async (req: Request, res: Response) => {
       asset: string; fee_percentage: string; min_fee_amount: string;
     };
     if (!asset) return err(res, 'asset required');
+    const percentage = Number(fee_percentage);
+    const minimum = Number(min_fee_amount);
+    if (!Number.isFinite(percentage) || percentage < 0 || percentage > 10000) {
+      return err(res, 'fee_percentage must be between 0 and 10000');
+    }
+    if (!Number.isFinite(minimum) || minimum < 0) return err(res, 'min_fee_amount must be non-negative');
     await db`
       UPDATE fee_config
       SET fee_percentage=${fee_percentage}, min_fee_amount=${min_fee_amount},
@@ -276,6 +283,55 @@ router.post('/fees', async (req: Request, res: Response) => {
     `;
     ok(res, { updated: asset });
   } catch (e) { err(res, String(e), 500); }
+});
+
+router.get('/fiat-fees', async (_req: Request, res: Response) => {
+  try {
+    const rows = await db`SELECT * FROM fiat_fee_config ORDER BY currency`;
+    ok(res, rows);
+  } catch (e) { err(res, String(e), 500); }
+});
+
+router.post('/fiat-fees', async (req: Request, res: Response) => {
+  try {
+    const { currency, fee_percentage, min_fee_amount } = req.body as {
+      currency: string; fee_percentage: string; min_fee_amount: string;
+    };
+    const percentage = Number(fee_percentage);
+    const minimum = Number(min_fee_amount);
+    if (!['EUR', 'USD', 'GBP'].includes(currency)) return err(res, 'Invalid fiat currency');
+    if (!Number.isFinite(percentage) || percentage < 0 || percentage > 10000) {
+      return err(res, 'fee_percentage must be between 0 and 10000');
+    }
+    if (!Number.isFinite(minimum) || minimum < 0) return err(res, 'min_fee_amount must be non-negative');
+    await db`
+      UPDATE fiat_fee_config
+      SET fee_percentage = ${fee_percentage}, min_fee_amount = ${min_fee_amount},
+          updated_by_discord_id = 'DASHBOARD', updated_at = NOW()
+      WHERE currency = ${currency}
+    `;
+    ok(res, { updated: currency });
+  } catch (e) { err(res, String(e), 500); }
+});
+
+// ── Admin profit balance ───────────────────────────────────────────────────
+
+router.get('/admin-profit', async (_req: Request, res: Response) => {
+  try {
+    const [balances, withdrawals] = await Promise.all([
+      getAdminProfitBalances(),
+      listAdminWithdrawals(),
+    ]);
+    ok(res, { balances, withdrawals });
+  } catch (e) { err(res, String(e), 500); }
+});
+
+router.post('/admin-profit/withdraw', async (req: Request, res: Response) => {
+  try {
+    const { asset, amount, destination } = req.body as { asset: Asset; amount: string; destination: string };
+    const id = await requestAdminWithdrawal({ asset, amount, destination });
+    ok(res, { id });
+  } catch (e) { err(res, String(e)); }
 });
 
 // ── Hot Wallets ────────────────────────────────────────────────────────────
