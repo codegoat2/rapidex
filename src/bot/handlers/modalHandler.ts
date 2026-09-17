@@ -29,7 +29,7 @@ import { ethers } from 'ethers';
 import { PublicKey } from '@solana/web3.js';
 import { checkTicketRateLimit } from '../../security/rateLimiter';
 import { createTrade } from '../../engine/tradeService';
-import { buildTradeEmbed, buildClaimRow, fiatMethodLabel, assetLabel } from '../embeds/tradeEmbed';
+import { buildTradeEmbed, buildClaimRow, buildAdminCloseRow, fiatMethodLabel, assetLabel } from '../embeds/tradeEmbed';
 import { logger } from '../../utils/logger';
 import { config } from '../../config/env';
 import { getTicketCategory } from '../../config/runtimeConfig';
@@ -568,7 +568,7 @@ async function postTicketMessage(
   await channel.send({
     content: `<@${userDiscordId}> Your trade ticket has been opened. A verified exchanger will claim it shortly.`,
     embeds:     [embed],
-    components: [buildClaimRow(trade.id)],
+    components: [buildClaimRow(trade.id), buildAdminCloseRow(trade.id)],
   });
 
   // Post to forum channel for exchangers to browse (non-fatal if forum not configured)

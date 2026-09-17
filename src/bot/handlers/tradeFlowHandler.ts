@@ -466,6 +466,95 @@ export async function handleDispute(
 }
 
 // ---------------------------------------------------------------------------
+// Admin: close ticket button — cancels trade in DB + deletes channel
+// ---------------------------------------------------------------------------
+
+export async function handleAdminCloseTicket(
+  interaction: ButtonInteraction,
+  tradeId: string,
+): Promise<void> {
+  await requirePermission(interaction, 'ADMIN_FORCE_ACTION');
+  await interaction.deferReply({ ephemeral: true });
+
+  const trade = await getTradeById(tradeId);
+  if (!trade) { await interaction.editReply('❌ Trade not found.'); return; }
+
+  // Don't re-cancel an already terminal trade — just delete the channel
+  const isTerminal = ['COMPLETED', 'CANCELLED', 'EXPIRED', 'FAILED'].includes(trade.status);
+
+  if (!isTerminal) {
+    // Release escrow / collateral before cancelling
+    if (trade.exchanger_id) {
+      if (trade.direction === 'FIAT_TO_FIAT' && trade.collateral_asset && trade.collateral_amount) {
+        try {
+          const { releaseCollateralToExchanger } = await import('../../ledger/ledgerService');
+          await releaseCollateralToExchanger({
+            exchangerId:     trade.exchanger_id,
+            tradeId:         trade.id,
+            collateralAsset: trade.collateral_asset as import('../../types').Asset,
+            collateralAmount: trade.collateral_amount,
+            idempotencyKey:  `collateral_release:${trade.id}:ADMIN_CLOSE`,
+            actorDiscordId:  interaction.user.id,
+          });
+        } catch (err) {
+          logger.warn({ err, tradeId: trade.id }, 'Could not release collateral on admin close — continuing');
+        }
+      } else if (['CLAIMED', 'FIAT_PENDING', 'FIAT_SENT', 'RELEASE_PENDING'].includes(trade.status)) {
+        try {
+          await releaseEscrow({
+            exchangerId:    trade.exchanger_id,
+            tradeId:        trade.id,
+            asset:          trade.asset,
+            amount:         trade.amount,
+            idempotencyKey: escrowReleaseKey(trade.id, 'CANCEL'),
+          });
+        } catch (err) {
+          logger.warn({ err, tradeId: trade.id }, 'Could not release escrow on admin close — continuing');
+        }
+      }
+    }
+
+    try {
+      await transitionTrade({
+        tradeId:        trade.id,
+        to:             'CANCELLED',
+        actorDiscordId: interaction.user.id,
+        note:           `Ticket closed by admin ${interaction.user.tag}`,
+      });
+    } catch (err) {
+      // If the current status doesn't allow CANCELLED transition, log and continue to delete channel
+      logger.warn({ err, tradeId: trade.id }, 'Could not transition to CANCELLED on admin close — deleting channel anyway');
+    }
+  }
+
+  // Write audit log
+  await db_auditLog(interaction.user.id, trade.user_discord_id, 'ADMIN_CLOSE_TICKET', 'trade', trade.id);
+
+  // Post closing notice then delete
+  const channel = interaction.guild?.channels.cache.get(trade.ticket_channel_id) as TextChannel | undefined;
+  if (channel) {
+    await channel.send({
+      embeds: [
+        new EmbedBuilder()
+          .setColor(COLORS.ERROR)
+          .setTitle('<:lock:1547331951877165128> Ticket Closed by Admin')
+          .setDescription(
+            `This ticket was closed by <@${interaction.user.id}>.\n` +
+            `Trade marked as **CANCELLED** in the database.\n\n` +
+            `Trade ID: \`${trade.id}\``,
+          )
+          .setTimestamp(),
+      ],
+    });
+    await new Promise(r => setTimeout(r, 3000));
+    await channel.delete(`Admin closed ticket — trade ${trade.id}`).catch(() => null);
+  }
+
+  await interaction.editReply('✅ Ticket closed and trade marked as CANCELLED.').catch(() => null);
+  logger.info({ tradeId: trade.id, admin: interaction.user.tag }, 'Admin closed ticket via button');
+}
+
+// ---------------------------------------------------------------------------
 // Admin: force-release confirmation + execution
 // ---------------------------------------------------------------------------
 

@@ -284,6 +284,62 @@ export async function handleCloseTicket(interaction: ChatInputCommandInteraction
   const trade   = await getTradeById(tradeId);
   if (!trade) { await interaction.editReply('❌ Trade not found.'); return; }
 
+  const isTerminal = ['COMPLETED', 'CANCELLED', 'EXPIRED', 'FAILED'].includes(trade.status);
+
+  // Release escrow/collateral and cancel in DB if not already terminal
+  if (!isTerminal) {
+    if (trade.exchanger_id) {
+      if (trade.direction === 'FIAT_TO_FIAT' && trade.collateral_asset && trade.collateral_amount) {
+        try {
+          const { releaseCollateralToExchanger } = await import('../../ledger/ledgerService');
+          await releaseCollateralToExchanger({
+            exchangerId:     trade.exchanger_id,
+            tradeId:         trade.id,
+            collateralAsset: trade.collateral_asset as import('../../types').Asset,
+            collateralAmount: trade.collateral_amount,
+            idempotencyKey:  `collateral_release:${trade.id}:CLOSE_CMD`,
+            actorDiscordId:  interaction.user.id,
+          });
+        } catch (err) {
+          logger.warn(`[close-ticket] Could not release collateral: ${String(err)}`);
+        }
+      } else if (['CLAIMED', 'FIAT_PENDING', 'FIAT_SENT', 'RELEASE_PENDING'].includes(trade.status)) {
+        try {
+          const { releaseEscrow } = await import('../../ledger/ledgerService');
+          const { escrowReleaseKey } = await import('../../security/idempotency');
+          await releaseEscrow({
+            exchangerId:    trade.exchanger_id,
+            tradeId:        trade.id,
+            asset:          trade.asset,
+            amount:         trade.amount,
+            idempotencyKey: escrowReleaseKey(trade.id, 'CANCEL'),
+          });
+        } catch (err) {
+          logger.warn(`[close-ticket] Could not release escrow: ${String(err)}`);
+        }
+      }
+    }
+
+    try {
+      const { transitionTrade } = await import('../../engine/tradeService');
+      await transitionTrade({
+        tradeId:        trade.id,
+        to:             'CANCELLED',
+        actorDiscordId: interaction.user.id,
+        note:           `Force-closed via /close-ticket by ${interaction.user.tag}`,
+      });
+    } catch (err) {
+      logger.warn(`[close-ticket] Could not transition to CANCELLED: ${String(err)}`);
+    }
+  }
+
+  // Write audit log
+  await db`
+    INSERT INTO audit_logs (actor_discord_id, target_discord_id, action, entity_type, entity_id, metadata)
+    VALUES (${interaction.user.id}, ${trade.user_discord_id}, 'CLOSE_TICKET', 'trade', ${trade.id},
+      ${JSON.stringify({ previousStatus: trade.status })}::jsonb)
+  `;
+
   try {
     const channel = interaction.guild?.channels.cache.get(trade.ticket_channel_id) as TextChannel | undefined;
     if (channel) {
@@ -291,15 +347,17 @@ export async function handleCloseTicket(interaction: ChatInputCommandInteraction
         embeds: [
           new EmbedBuilder().setColor(COLORS.ERROR)
             .setTitle('<:lock:1547331951877165128> Ticket Closed by Admin')
-            .setDescription(`Closed by <@${interaction.user.id}>`)
+            .setDescription(
+              `Closed by <@${interaction.user.id}>.\nTrade marked as **CANCELLED** in the database.\n\nTrade ID: \`${trade.id}\``,
+            )
             .setTimestamp(),
         ],
       });
-      await channel.delete('Admin closed ticket');
+      await channel.delete('Admin closed ticket via /close-ticket');
     }
-    await interaction.editReply('✅ Ticket channel deleted.');
+    await interaction.editReply('✅ Ticket channel deleted and trade marked as CANCELLED.');
   } catch (err) {
-    await interaction.editReply(`❌ Failed to close ticket: ${String(err)}`);
+    await interaction.editReply(`❌ DB updated but failed to delete channel: ${String(err)}`);
   }
 }
 

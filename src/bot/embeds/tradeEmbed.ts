@@ -499,6 +499,19 @@ export function buildClaimRow(tradeId: string): ActionRowBuilder<ButtonBuilder> 
   );
 }
 
+/**
+ * Admin-only close button — rendered on every ticket message.
+ * Permission is enforced in the handler via requirePermission('ADMIN_FORCE_ACTION').
+ */
+export function buildAdminCloseRow(tradeId: string): ActionRowBuilder<ButtonBuilder> {
+  return new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`admin_close_ticket:${tradeId}`)
+      .setLabel('🔒 Close Ticket')
+      .setStyle(ButtonStyle.Danger),
+  );
+}
+
 export function buildExchangerActionRow(tradeId: string, status: string): ActionRowBuilder<ButtonBuilder> {
   const row = new ActionRowBuilder<ButtonBuilder>();
   if (status === 'FIAT_SENT') {

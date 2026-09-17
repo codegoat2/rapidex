@@ -183,6 +183,9 @@ export async function handleButton(interaction: ButtonInteraction): Promise<void
       case 'admin_force_cancel':
         await (await import('./tradeFlowHandler')).handleForceCancelConfirm(interaction, id);
         break;
+      case 'admin_close_ticket':
+        await (await import('./tradeFlowHandler')).handleAdminCloseTicket(interaction, id);
+        break;
       case 'confirm_force_release':
         await (await import('./tradeFlowHandler')).handleForceRelease(interaction, id);
         break;

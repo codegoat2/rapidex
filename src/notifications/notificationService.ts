@@ -143,6 +143,9 @@ export async function notifyTradeCompleted(tradeId: string): Promise<void> {
   await postToChannel(trade.ticket_channel_id, embed);
   await dmUser(trade.user_discord_id, embed);
   await postCompletedTradeHistory(trade);
+
+  // Auto-close ticket 5 minutes after completion
+  void scheduleTicketAutoClose(trade);
 }
 
 async function postCompletedTradeHistory(trade: DbTrade): Promise<void> {
@@ -181,6 +184,117 @@ async function postCompletedTradeHistory(trade: DbTrade): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Auto-close ticket 5 minutes after trade completes — sends transcript first
+// ---------------------------------------------------------------------------
+
+async function scheduleTicketAutoClose(trade: DbTrade): Promise<void> {
+  const DELAY_MS = 5 * 60 * 1000; // 5 minutes
+
+  // Post countdown notice in the ticket channel immediately
+  try {
+    const client  = getDiscordClient();
+    const ticketChannel = client.channels.cache.get(trade.ticket_channel_id) as TextChannel | undefined;
+    if (ticketChannel) {
+      await ticketChannel.send({
+        embeds: [
+          new EmbedBuilder()
+            .setColor(COLORS.WARNING)
+            .setTitle('<:lock:1547331951877165128> Ticket Closing in 5 Minutes')
+            .setDescription(
+              'This trade has been completed.\n\n' +
+              'A full transcript will be sent to the admin log and this channel will be deleted in **5 minutes**.\n\n' +
+              'Save any information you need now.',
+            )
+            .setFooter({ text: 'RapidEx · Auto-Close' })
+            .setTimestamp(),
+        ],
+      });
+    }
+  } catch (err) {
+    logger.warn({ err, tradeId: trade.id }, 'Auto-close countdown notice failed — non-fatal');
+  }
+
+  await new Promise(r => setTimeout(r, DELAY_MS));
+
+  try {
+    await sendTicketTranscriptToAdminLog(trade);
+  } catch (err) {
+    logger.warn({ err, tradeId: trade.id }, 'Transcript post failed — non-fatal, still deleting channel');
+  }
+
+  try {
+    const client  = getDiscordClient();
+    const ticketChannel = client.channels.cache.get(trade.ticket_channel_id) as TextChannel | undefined;
+    if (ticketChannel) {
+      await ticketChannel.delete(`Auto-close — trade ${trade.id} completed`);
+      logger.info({ tradeId: trade.id }, 'Ticket channel auto-closed after completion');
+    }
+  } catch (err) {
+    logger.warn({ err, tradeId: trade.id }, 'Auto-close channel delete failed — non-fatal');
+  }
+}
+
+async function sendTicketTranscriptToAdminLog(trade: DbTrade): Promise<void> {
+  const { getChannelAdminAlerts } = await import('../config/runtimeConfig');
+  const adminChannelId = await getChannelAdminAlerts();
+  if (!adminChannelId) return;
+
+  const client  = getDiscordClient();
+
+  // Fetch the last 100 messages from the ticket channel for the transcript
+  let transcriptLines: string[] = [];
+  try {
+    const ticketChannel = client.channels.cache.get(trade.ticket_channel_id) as TextChannel | undefined;
+    if (ticketChannel) {
+      const messages = await ticketChannel.messages.fetch({ limit: 100 });
+      transcriptLines = [...messages.values()]
+        .reverse()
+        .map(m => {
+          const ts   = `[${m.createdAt.toISOString().slice(11, 19)}]`;
+          const who  = m.author.bot ? `[BOT] ${m.author.username}` : m.author.tag;
+          const body = m.content || (m.embeds.length ? `[embed: ${m.embeds[0]?.title ?? 'no title'}]` : '[attachment/component]');
+          return `${ts} ${who}: ${body}`;
+        });
+    }
+  } catch (err) {
+    logger.warn({ err, tradeId: trade.id }, 'Could not fetch messages for transcript');
+  }
+
+  const FIAT_SYM: Record<string, string> = { EUR: '€', USD: '$', GBP: '£' };
+  const sym = FIAT_SYM[trade.fiat_currency] ?? trade.fiat_currency;
+  const fiatPart = trade.fiat_amount
+    ? `${sym}${parseFloat(trade.fiat_amount).toFixed(2)} → `
+    : '';
+
+  const transcriptText = transcriptLines.length
+    ? transcriptLines.join('\n').slice(0, 3800) // embed description limit
+    : '_No messages recorded_';
+
+  const adminChannel = client.channels.cache.get(adminChannelId) as TextChannel | undefined;
+  if (!adminChannel) return;
+
+  const transcriptEmbed = new EmbedBuilder()
+    .setColor(COLORS.COMPLETED)
+    .setTitle('<:GreenCheckmark:1547332810048667659> Trade Transcript — Completed')
+    .addFields(
+      { name: '🆔 Trade ID',        value: `\`${trade.id}\``,                                              inline: false },
+      { name: '👤 User',            value: `<@${trade.user_discord_id}>`,                                  inline: true  },
+      { name: '💎 Asset',           value: `${fiatPart}${parseFloat(trade.amount).toFixed(8)} ${trade.asset}`, inline: true  },
+      { name: '📋 Direction',       value: trade.direction,                                                 inline: true  },
+      { name: '📅 Completed At',    value: trade.completed_at
+          ? `<t:${Math.floor(new Date(trade.completed_at).getTime() / 1000)}:F>`
+          : 'Unknown',                                                                                       inline: true  },
+      { name: '📝 Transcript',      value: `\`\`\`\n${transcriptText}\n\`\`\``,                           inline: false },
+    )
+    .setFooter({ text: 'RapidEx · Auto-Close Transcript' })
+    .setTimestamp();
+
+  await adminChannel.send({ embeds: [transcriptEmbed] });
+  logger.info({ tradeId: trade.id, adminChannelId }, 'Transcript sent to admin log');
+}
+
+// ---------------------------------------------------------------------------
 export async function notifyTradeExpired(tradeId: string): Promise<void> {
   const trade = await getTradeById(tradeId);
   if (!trade) return;
